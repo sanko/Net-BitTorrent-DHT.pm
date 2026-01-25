@@ -1,0 +1,101 @@
+{
+   "X_No_Archive" : "Yes",
+   "abstract" : "Pure Perl Kademlia-like BitTorrent DHT Node",
+   "author" : [
+      "Sanko Robinson <sanko@cpan.org>"
+   ],
+   "description" : "Kademlia is a communications protocol for peer-to-peer networks. It is one of many versions of a DHT, a Distributed Hash Table.",
+   "dynamic_config" : 0,
+   "generated_by" : "App::mii v1.0.0",
+   "keywords" : [
+      "dht",
+      "kademlia",
+      "bittorrent",
+      "interplanetary"
+   ],
+   "license" : [
+      "artistic_2"
+   ],
+   "meta-spec" : {
+      "url" : "https://metacpan.org/pod/CPAN::Meta::Spec",
+      "version" : 2
+   },
+   "name" : "Net-BitTorrent-DHT",
+   "no_index" : {
+      "directory" : [
+         "t",
+         "xt",
+         "eg"
+      ]
+   },
+   "prereqs" : {
+      "build" : {
+         "requires" : {
+            "Module::Build::Tiny" : "0"
+         }
+      },
+      "configure" : {
+         "requires" : {
+            "Module::Build::Tiny" : "0",
+            "perl" : "v5.42.0"
+         }
+      },
+      "runtime" : {
+         "recommends" : {
+            "IO::Async" : "0"
+         },
+         "requires" : {
+            "Algorithm::Kademlia" : "0",
+            "IO::Select" : "0",
+            "IO::Socket::INET" : "0",
+            "Net::BitTorrent::Protocol::BEP03::Bencode" : "0",
+            "Socket" : "0",
+            "perl" : "v5.42.0"
+         }
+      },
+      "test" : {
+         "requires" : {
+            "Test2::V0" : "0"
+         }
+      }
+   },
+   "provides" : {
+      "Net::BitTorrent::DHT" : {
+         "file" : "lib/Net/BitTorrent/DHT.pm",
+         "version" : "v2.0.0"
+      },
+      "Net::BitTorrent::DHT::Peer" : {
+         "file" : "lib/Net/BitTorrent/DHT.pm"
+      }
+   },
+   "release_status" : "stable",
+   "resources" : {
+      "bugtracker" : {
+         "web" : "https://github.com/sanko/Net-BitTorrent-DHT.pm/issues"
+      },
+      "homepage" : "https://github.com/sanko/Net-BitTorrent-DHT.pm",
+      "license" : [
+         "http://www.perlfoundation.org/artistic_license_2_0"
+      ],
+      "repository" : {
+         "type" : "git",
+         "url" : "git://github.com/sanko/Net-BitTorrent-DHT.pm.git",
+         "web" : "https://github.com/sanko/Net-BitTorrent-DHT.pm"
+      }
+   },
+   "version" : "v2.0.0",
+   "x_help_wanted" : [
+      "Tester",
+      "Documenter"
+   ],
+   "x_ignore" : [
+      ".tidyallrc",
+      ".gitignore",
+      ".github/",
+      ".github/*",
+      ".github/**",
+      ".clang-format"
+   ],
+   "x_serialization_backend" : "JSON::PP version 4.16",
+   "x_static_install" : 0
+}

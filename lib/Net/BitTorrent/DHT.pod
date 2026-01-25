@@ -1,0 +1,109 @@
+=pod
+
+=head1 NAME
+
+Net::BitTorrent::DHT - BitTorrent Mainline DHT implementation
+
+=head1 SYNOPSIS
+
+    use Net::BitTorrent::DHT;
+
+    my $dht = Net::BitTorrent::DHT->new(
+        node_id_bin => pack('H*', '0123456789abcdef0123456789abcdef01234567'),
+        port        => 6881,
+        address     => '0.0.0.0' # Optional: bind to specific address
+    );
+
+    # Bootstrap the routing table
+    $dht->bootstrap();
+
+    # In your event loop:
+    while (1) {
+        my ($new_nodes, $found_peers) = $dht->tick(0.1);
+        # ... process results ...
+    }
+
+    # Or run in a blocking loop:
+    # $dht->run();
+
+=head1 DESCRIPTION
+
+C<Net::BitTorrent::DHT> implements the BitTorrent Mainline DHT protocol (BEP 5) with IPv6 extensions (BEP 32). It uses
+L<Algorithm::Kademlia> for its core routing logic and L<Net::BitTorrent::Protocol::BEP03::Bencode> for wire
+serialization.
+
+=head1 METHODS
+
+=head2 C<new( node_id_bin =E<gt> ..., [ port =E<gt> 6881, address =E<gt> ... ] )>
+
+Constructor. C<node_id_bin> must be a 20-byte binary string.
+
+=head2 C<bootstrap( )>
+
+Sends C<ping> and C<find_node> requests to well-known router nodes to populate the initial routing table.
+
+=head2 C<tick( [ $timeout ] )>
+
+Processes any pending incoming UDP packets. Returns two array references: C<($learned_nodes, $found_peers)>.
+
+=head2 C<ping( $addr, $port )>
+
+Sends a C<ping> query to the specified node.
+
+=head2 C<find_node_remote( $target_id, $addr, $port )>
+
+Sends a C<find_node> query for the specified target ID.
+
+=head2 C<get_peers( $info_hash, $addr, $port )>
+
+Sends a C<get_peers> query for the specified info-hash.
+
+=head2 C<announce_peer( $info_hash, $token, $announce_port, $addr, $port )>
+
+Sends an C<announce_peer> query. Requires a C<token> received from a previous C<get_peers> call.
+
+=head2 C<run( )>
+
+Enters an infinite loop calling C<tick()>.
+
+=head1 IPv6 SUPPORT
+
+This module fully supports BEP 32. It correctly handles the C<nodes6> field in responses and supports 18-byte compact
+IPv6 peer addresses in C<values>.
+
+=head1 EVENT LOOP INTEGRATION
+
+This module is designed to be protocol-agnostic regarding the event loop.
+
+=head2 Using with IO::Select (Default)
+
+Simply call C<tick($timeout)> in your own loop.
+
+=head2 Using with IO::Async
+
+    my $handle = IO::Async::Handle->new(
+        handle => $dht->socket,
+        on_read_ready => sub {
+            my ($nodes, $peers) = $dht->handle_incoming();
+            # ...
+        },
+    );
+    $loop->add($handle);
+
+=head1 SEE ALSO
+
+L<Algorithm::Kademlia>, L<Net::BitTorrent::Protocol::BEP03::Bencode>
+
+L<https://www.bittorrent.org/beps/bep_0005.html>,  L<https://www.bittorrent.org/beps/bep_0032.html>
+
+=head1 AUTHOR
+
+Sanko Robinson E<lt>sanko@cpan.orgE<gt>
+
+=head1 COPYRIGHT
+
+Copyright (C) 2023-2026 by Sanko Robinson.
+
+This library is free software; you can redistribute it and/or modify it under the terms of the Artistic License 2.0.
+
+=cut

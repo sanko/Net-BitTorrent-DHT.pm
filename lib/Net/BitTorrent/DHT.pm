@@ -2,395 +2,295 @@ use v5.40;
 use feature 'class';
 no warnings 'experimental::class';
 
-class Net::BitTorrent::DHT;
-
-use Net::Kademlia::RoutingTable;
-use Net::BitTorrent::Protocol::BEP03::Bencode qw(bencode bdecode);
-use IO::Socket::INET;
-use Socket qw(pack_sockaddr_in inet_aton);
-use IO::Select;
-
-our $VERSION = '0.0.1';
-
-field $node_id_bin :param;
-field $port :param = 6881;
-field $routing_table :reader;
-field $socket;
-field $select;
-field %tokens; # token -> timestamp
-
-ADJUST {
-    $routing_table = Net::Kademlia::RoutingTable->new(
-        local_id_bin => $node_id_bin,
-        k => 8 # BitTorrent uses k=8
-    );
-
-    $socket = IO::Socket::INET->new(
-        LocalPort => $port,
-        Proto     => 'udp',
-        Blocking  => 0,
-    ) or die "Could not create UDP socket: $!";
-
-    $select = IO::Select->new($socket);
+class Net::BitTorrent::DHT::Peer {
+    field $ip     : param : reader;
+    field $port   : param : reader;
+    field $family : param : reader;
+    method to_string () {"$ip:$port"}
 }
+class Net::BitTorrent::DHT v2.0.0 {
+    use Algorithm::Kademlia;
+    use Net::BitTorrent::Protocol::BEP03::Bencode qw[bencode bdecode];
+    use IO::Socket::IP;
+    use Socket
+        qw[sockaddr_family pack_sockaddr_in unpack_sockaddr_in inet_aton inet_ntoa AF_INET AF_INET6 pack_sockaddr_in6 unpack_sockaddr_in6 inet_pton inet_ntop getaddrinfo SOCK_DGRAM];
+    use IO::Select;
+    use Digest::SHA qw[sha1];
+    field $node_id_bin : param : reader;
+    field $port          : param : reader = 6881;
+    field $address       : param  = undef;
+    field $want_v4       : param  = 1;
+    field $want_v6       : param  = 1;
+    field $routing_table : reader = Algorithm::Kademlia::RoutingTable->new( local_id_bin => $node_id_bin, k => 8 );
+    field $peer_storage  : reader = Algorithm::Kademlia::Storage->new( ttl => 7200 );
+    field $socket        : param : reader //= IO::Socket::IP->new( LocalAddr => $address, LocalPort => $port, Proto => 'udp', Blocking => 0 );
+    field $select //= IO::Select->new($socket);
+    field $debug : param : writer = 0;
+    field $token_secret           = pack( "N", rand( 2**32 ) ) . pack( "N", rand( 2**32 ) );
+    field $token_old_secret       = $token_secret;
+    field $last_rotation          = time();
+    ADJUST {
+        $socket // die "Could not create UDP socket: $!"
+    }
 
-method bootstrap () {
-    say "[DHT] Bootstrapping via router.bittorrent.com...";
-    $self->ping('router.bittorrent.com', 6881);
-    $self->ping('dht.transmissionbt.com', 6881);
-
-    # Also perform a find_node on ourselves to fill buckets
-    $self->find_node_remote($node_id_bin, 'router.bittorrent.com', 6881);
-}
-
-method ping ($addr, $port) {
-    my $msg = {
-        t => "pn",
-        y => "q",
-        q => "ping",
-        a => { id => $node_id_bin }
-    };
-    $self->_send($msg, $addr, $port);
-}
-
-method find_node_remote ($target_id, $addr, $port) {
-    my $msg = {
-        t => "fn",
-        y => "q",
-        q => "find_node",
-        a => { id => $node_id_bin, target => $target_id }
-    };
-    $self->_send($msg, $addr, $port);
-}
-
-method get_peers ($info_hash, $addr, $port) {
-    my $msg = {
-        t => "gp",
-        y => "q",
-        q => "get_peers",
-        a => { id => $node_id_bin, info_hash => $info_hash }
-    };
-    $self->_send($msg, $addr, $port);
-}
-
-method run () {
-    say "[DHT] Node running on port $port. ID: " . unpack("H*", $node_id_bin);
-    $self->bootstrap();
-
-    while (1) {
-        if ($select->can_read(1)) {
-            $self->handle_incoming();
+    method export_state () {
+        my @all_nodes;
+        for my $bucket ( $routing_table->buckets ) {
+            push @all_nodes, map { { id => $_->{id}, ip => $_->{data}{ip}, port => $_->{data}{port} } } @$bucket;
         }
-        # Periodically refresh buckets or re-bootstrap if empty
-    }
-}
-
-method handle_incoming () {
-
-    my $sender = $socket->recv(my $data, 4096);
-
-    return [] unless $data;
-
-
-
-    my $msg;
-
-    eval { $msg = bdecode($data); };
-
-    if ($@) { return []; }
-
-    return [] unless $msg && ref($msg) eq 'HASH';
-
-
-
-    my ($port, $ip_bin) = unpack_sockaddr_in($sender);
-
-    my $ip = inet_ntoa($ip_bin);
-
-
-
-    if ($msg->{y} eq 'q') {
-
-        $self->_handle_query($msg, $sender);
-
-        return [];
-
-    } elsif ($msg->{y} eq 'r') {
-
-        return $self->_handle_response($msg, $sender);
-
+        return { id => $node_id_bin, nodes => \@all_nodes, peers => $peer_storage->entries, };
     }
 
-    return [];
-
-}
-
-
-
-
-
-method _handle_query ($msg, $sender) {
-
-    my $q = $msg->{q};
-
-    my $id = $msg->{a}{id};
-
-
-
-    my ($port, $ip_bin) = unpack_sockaddr_in($sender);
-
-    $routing_table->add_peer($id, { ip => inet_ntoa($ip_bin), port => $port });
-
-
-
-    my $res = { t => $msg->{t}, y => 'r', r => { id => $node_id_bin } };
-
-
-
-    if ($q eq 'ping') {
-
-        # Reply already set
-
-    } elsif ($q eq 'find_node') {
-
-        my $target = $msg->{a}{target};
-
-        my $closest = $routing_table->find_closest($target);
-
-        $res->{r}{nodes} = $self->_pack_nodes($closest);
-
-    } elsif ($q eq 'get_peers') {
-
-        my $info_hash = $msg->{a}{info_hash};
-
-        $res->{r}{token} = $self->_generate_token($sender);
-
-        my $closest = $routing_table->find_closest($info_hash);
-
-        $res->{r}{nodes} = $self->_pack_nodes($closest);
-
-    }
-
-
-
-    $self->_send_raw(bencode($res), $sender);
-
-}
-
-
-
-method _handle_response ($msg, $sender) {
-
-
-
-    my $r = $msg->{r};
-
-
-
-    return [] unless $r && $r->{id};
-
-
-
-
-
-
-
-    my ($port, $ip_bin) = unpack_sockaddr_in($sender);
-
-
-
-    $routing_table->add_peer($r->{id}, { ip => inet_ntoa($ip_bin), port => $port });
-
-
-
-
-
-
-
-    if ($r->{values}) {
-
-
-
-        my $peers = $self->_unpack_peers($r->{values});
-
-
-
-        if (@$peers) {
-
-
-
-            say "[DHT] SUCCESS: Found " . scalar(@$peers) . " peers for info_hash!";
-
-
-
-            foreach my $p (@$peers) {
-
-
-
-                say "  [PEER] " . $p->{ip} . ":" . $p->{port};
-
-
-
-            }
-
-
-
+    method import_state ($state) {
+        $node_id_bin = $state->{id} if defined $state->{id};
+        if ( $state->{nodes} ) {
+            my @to_import = map { { id => $_->{id}, data => { ip => $_->{ip}, port => $_->{port} } } } $state->{nodes}->@*;
+            $routing_table->import_peers( \@to_import );
         }
-
-
-
-    }
-
-
-
-
-
-
-
-    my @learned;
-
-
-
-    if ($r->{nodes}) {
-
-
-
-        @learned = $self->_unpack_nodes($r->{nodes})->@*;
-
-
-
-        foreach my $node (@learned) {
-
-
-
-            $routing_table->add_peer($node->{id}, { ip => $node->{ip}, port => $node->{port} });
-
-
-
-        }
-
-
-
-    }
-
-
-
-    return \@learned;
-
-
-
-}
-
-
-
-
-
-
-
-method _send ($msg, $addr, $port) {
-
-    my $ip_aton = inet_aton($addr);
-
-    return unless $ip_aton;
-
-    my $dest = pack_sockaddr_in($port, $ip_aton);
-
-    $self->_send_raw(bencode($msg), $dest);
-
-}
-
-
-
-method _send_raw ($data, $dest) {
-
-    $socket->send($data, 0, $dest);
-
-}
-
-
-
-method _pack_nodes ($peers) {
-
-    my $out = "";
-
-    foreach my $p (@$peers) {
-
-        $out .= $p->{id}; # 20 bytes
-
-        my $ip_bin = inet_aton($p->{data}{ip} // '127.0.0.1');
-
-        $out .= $ip_bin . pack("n", $p->{data}{port} // 0);
-
-    }
-
-    return $out;
-
-}
-
-
-
-method _unpack_nodes ($blob) {
-    my @nodes;
-    while (length($blob) >= 26) {
-        my $chunk = substr($blob, 0, 26, "");
-        my ($id, $ip_bin, $port) = unpack("a20 a4 n", $chunk);
-        push @nodes, { id => $id, ip => inet_ntoa($ip_bin), port => $port };
-    }
-    return \@nodes;
-}
-
-method _unpack_peers ($list) {
-    my @peers;
-    # Sometimes 'values' can be a single string of 6-byte chunks
-    # instead of a list of strings.
-    if (ref($list) eq 'ARRAY') {
-        foreach my $blob (@$list) {
-            if (length($blob) == 6) {
-                my ($ip_bin, $port) = unpack("a4 n", $blob);
-                push @peers, { ip => inet_ntoa($ip_bin), port => $port };
+        if ( $state->{peers} ) {
+            for my ( $hash, $info )( $state->{peers}->%* ) {
+                $peer_storage->put( $hash, $info->{value} );
             }
         }
-    } else {
-        # Treat as compact string
-        my $blob = $list;
-        while (length($blob) >= 6) {
-            my $chunk = substr($blob, 0, 6, "");
-            my ($ip_bin, $port) = unpack("a4 n", $chunk);
-            push @peers, { ip => inet_ntoa($ip_bin), port => $port };
+    }
+
+    method _rotate_tokens () {
+        if ( time() - $last_rotation > 300 ) {
+            $token_old_secret = $token_secret;
+            $token_secret     = pack( "N", rand( 2**32 ) ) . pack( "N", rand( 2**32 ) );
+            $last_rotation    = time();
         }
     }
-    return \@peers;
-}
 
-method _generate_token ($sender) {
-    return "secret_token_" . time(); # Simplified
-}
+    method _generate_token ( $ip, $secret = undef ) {
+        $secret //= $token_secret;
+        return sha1( $ip . $secret );
+    }
 
+    method _verify_token ( $ip, $token ) {
+        return 1 if $token eq $self->_generate_token( $ip, $token_secret );
+        return 1 if $token eq $self->_generate_token( $ip, $token_old_secret );
+        return 0;
+    }
+
+    method bootstrap () {
+        return unless $want_v4;
+        my @routers
+            = ( [ 'router.bittorrent.com', 6881 ], [ 'router.utorrent.com', 6881 ], [ 'dht.transmissionbt.com', 6881 ], [ 'dht.aelitis.com', 6881 ],
+            );
+        for my $r (@routers) {
+            $self->ping(@$r);
+            $self->find_node_remote( $node_id_bin, @$r );
+        }
+    }
+
+    method ping ( $addr, $port ) {
+        $self->_send( { t => "pn", y => "q", q => "ping", a => { id => $node_id_bin } }, $addr, $port );
+    }
+
+    method find_node_remote ( $target_id, $addr, $port ) {
+        $self->_send( { t => 'fn', y => 'q', q => 'find_node', a => { id => $node_id_bin, target => $target_id } }, $addr, $port );
+    }
+
+    method get_peers ( $info_hash, $addr, $port ) {
+        $self->_send( { t => 'gp', y => 'q', q => 'get_peers', a => { id => $node_id_bin, info_hash => $info_hash } }, $addr, $port );
+    }
+
+    method announce_peer ( $info_hash, $token, $announce_port, $addr, $port ) {
+        my $msg = {
+            t => 'ap',
+            y => 'q',
+            q => 'announce_peer',
+            a => { id => $node_id_bin, info_hash => $info_hash, port => $announce_port, token => $token, }
+        };
+        $self->_send( $msg, $addr, $port );
+    }
+
+    method tick ( $timeout = 0 ) {
+        $self->_rotate_tokens();
+        if ( $select->can_read($timeout) ) {
+            return $self->handle_incoming();
+        }
+        return ( [], [] );
+    }
+
+    method handle_incoming () {
+        my $sender = $socket->recv( my $data, 4096 );
+        return ( [], [] ) unless defined $data && length $data;
+        my $msg = eval { bdecode($data) };
+        return ( [], [] ) if $@ || ref($msg) ne 'HASH';
+        my ( $port, $ip ) = $self->_unpack_address($sender);
+        return ( [], [] ) unless $ip;
+        if ( ( $msg->{y} // '' ) eq 'q' ) {
+            my $node = $self->_handle_query( $msg, $sender, $ip, $port );
+
+            # Return flat format
+            return ( $node ? [$node] : [], [] );
+        }
+        elsif ( $msg->{y} eq 'r' ) {
+            return $self->_handle_response( $msg, $sender, $ip, $port );
+        }
+        return ( [], [] );
+    }
+
+    method _unpack_address ($sockaddr) {
+        my $family = eval { sockaddr_family($sockaddr) } // return ();
+        if ( $family == AF_INET ) {
+            my ( $port, $ip_bin ) = unpack_sockaddr_in($sockaddr);
+            return ( $port, inet_ntoa($ip_bin) );
+        }
+        elsif ( $family == AF_INET6 ) {
+            my ( $port, $ip_bin, $scope, $flow ) = unpack_sockaddr_in6($sockaddr);
+            return ( $port, inet_ntop( AF_INET6, $ip_bin ) );
+        }
+        return ();
+    }
+
+    method _handle_query ( $msg, $sender, $ip, $port ) {
+        my $q     = $msg->{q} // return;
+        my $a     = $msg->{a} // return;
+        my $id    = $a->{id}  // return;
+        my $stale = $routing_table->add_peer( $id, { ip => $ip, port => $port } );
+        if ($stale) {
+            $self->ping( $stale->{data}{ip}, $stale->{data}{port} )
+                if ( $stale->{data}{ip} !~ /:/ && $want_v4 ) || ( $stale->{data}{ip} =~ /:/ && $want_v6 );
+        }
+        my $res = { t => $msg->{t}, y => 'r', r => { id => $node_id_bin } };
+        if    ( $q eq 'ping' ) { }
+        elsif ( $q eq 'find_node' ) {
+            my ( $v4, $v6 ) = $self->_pack_nodes( [ $routing_table->find_closest( $a->{target} ) ] );
+            $res->{r}{nodes}  = $v4 if $v4 && $want_v4;
+            $res->{r}{nodes6} = $v6 if $v6 && $want_v6;
+        }
+        elsif ( $q eq 'get_peers' ) {
+            my $info_hash = $a->{info_hash};
+            $res->{r}{token} = $self->_generate_token($ip);
+            my $peers = $peer_storage->get($info_hash);
+            if ( $peers && @$peers ) {
+                my @filtered = grep { ( $_->{ip} =~ /:/ ) ? $want_v6 : $want_v4 } @$peers;
+                $res->{r}{values} = $self->_pack_peers_raw( \@filtered );
+            }
+            else {
+                my ( $v4, $v6 ) = $self->_pack_nodes( [ $routing_table->find_closest($info_hash) ] );
+                $res->{r}{nodes}  = $v4 if $v4 && $want_v4;
+                $res->{r}{nodes6} = $v6 if $v6 && $want_v6;
+            }
+        }
+        elsif ( $q eq 'announce_peer' ) {
+            my $info_hash = $a->{info_hash};
+            if ( $self->_verify_token( $ip, $a->{token} ) ) {
+                my $peers    = $peer_storage->get($info_hash) // [];
+                my $new_peer = { ip => $ip, port => ( $a->{implied_port} ? $port : $a->{port} ) };
+                @$peers = grep { $_->{ip} ne $ip } @$peers;
+                push @$peers, $new_peer;
+                $peer_storage->put( $info_hash, $peers );
+            }
+        }
+        $self->_send_raw( bencode($res), $sender );
+        return { id => $id, ip => $ip, port => $port };
+    }
+
+    method _handle_response ( $msg, $sender, $ip, $port ) {
+        my $r = $msg->{r};
+        return ( [], [] ) unless $r && $r->{id};
+        my $stale = $routing_table->add_peer( $r->{id}, { ip => $ip, port => $port } );
+        if ($stale) {
+            $self->ping( $stale->{data}{ip}, $stale->{data}{port} )
+                if ( $stale->{data}{ip} !~ /:/ && $want_v4 ) || ( $stale->{data}{ip} =~ /:/ && $want_v6 );
+        }
+        my $peers = [];
+        if ( $r->{values} ) {
+            $peers = $self->_unpack_peers( $r->{values} );
+        }
+        my @learned;
+        if ( $r->{nodes} ) {
+            push @learned, $self->_unpack_nodes( $r->{nodes}, AF_INET )->@*;
+        }
+        if ( $r->{nodes6} ) {
+            push @learned, $self->_unpack_nodes( $r->{nodes6}, AF_INET6 )->@*;
+        }
+        for my $node (@learned) {
+            $routing_table->add_peer( $node->{id}, { ip => $node->{ip}, port => $node->{port} } );
+        }
+
+        # Always include the responding node itself
+        push @learned, { id => $r->{id}, ip => $ip, port => $port };
+        return ( \@learned, $peers );
+    }
+
+    method _send ( $msg, $addr, $port ) {
+        return if ( $addr =~ /:/ && !$want_v6 ) || ( $addr !~ /:/ && !$want_v4 );
+        my ( $err, @res ) = getaddrinfo( $addr, $port, { socktype => SOCK_DGRAM } );
+        return if $err || !@res;
+        $self->_send_raw( bencode($msg), $res[0]{addr} );
+    }
+
+    method _send_raw ( $data, $dest ) {
+        $socket->send( $data, 0, $dest );
+    }
+
+    method _pack_nodes ($peers) {
+        my $v4 = "";
+        my $v6 = "";
+        for my $p (@$peers) {
+            my $ip   = $p->{data}{ip};
+            my $port = $p->{data}{port} // 0;
+            if ( $ip =~ /:/ ) {
+                next unless $want_v6;
+                my $ip_bin = inet_pton( AF_INET6, $ip );
+                $v6 .= $p->{id} . $ip_bin . pack( "n", $port ) if $ip_bin;
+            }
+            else {
+                next unless $want_v4;
+                my $ip_bin = inet_aton($ip);
+                $v4 .= $p->{id} . $ip_bin . pack( "n", $port ) if $ip_bin;
+            }
+        }
+        return ( $v4, $v6 );
+    }
+
+    method _unpack_nodes ( $blob, $family = AF_INET ) {
+        my @nodes;
+        my $stride = ( $family == AF_INET ) ? 26 : 38;
+        my $ip_len = ( $family == AF_INET ) ? 4  : 16;
+        while ( length($blob) >= $stride ) {
+            my $chunk  = substr( $blob,  0,  $stride, "" );
+            my $id     = substr( $chunk, 0,  20 );
+            my $ip_bin = substr( $chunk, 20, $ip_len );
+            my $port   = unpack( "n", substr( $chunk, 20 + $ip_len, 2 ) );
+            my $ip     = ( $family == AF_INET ) ? inet_ntoa($ip_bin) : inet_ntop( AF_INET6, $ip_bin );
+            push @nodes, { id => $id, ip => $ip, port => $port };
+        }
+        return \@nodes;
+    }
+
+    method _unpack_peers ($list) {
+        my @peers;
+        my @blobs = ( ref($list) eq 'ARRAY' ) ? @$list : ($list);
+        for my $blob (@blobs) {
+            while ( length($blob) >= 6 ) {
+                if ( length($blob) % 18 == 0 ) {
+                    my $chunk = substr( $blob, 0, 18, "" );
+                    my ( $ip_bin, $port ) = unpack( "a16 n", $chunk );
+                    push @peers, Net::BitTorrent::DHT::Peer->new( ip => inet_ntop( AF_INET6, $ip_bin ), port => $port, family => 6 ) if $want_v6;
+                }
+                else {
+                    my $chunk = substr( $blob, 0, 6, "" );
+                    my ( $ip_bin, $port ) = unpack( "a4 n", $chunk );
+                    push @peers, Net::BitTorrent::DHT::Peer->new( ip => inet_ntoa($ip_bin), port => $port, family => 4 ) if $want_v4;
+                }
+            }
+        }
+        return \@peers;
+    }
+
+    method _pack_peers_raw ($peers) {
+        return [
+            map {
+                ( $_->{ip} =~ /:/ ) ? ( inet_pton( AF_INET6, $_->{ip} ) . pack( "n", $_->{port} ) ) :
+                    ( inet_aton( $_->{ip} ) . pack( "n", $_->{port} ) )
+            } @$peers
+        ];
+    }
+};
 1;
-
-__END__
-
-=pod
-
-=head1 NAME
-
-Net::BitTorrent::DHT - BitTorrent Mainline DHT implementation
-
-=head1 SYNOPSIS
-
-    use Net::BitTorrent::DHT;
-
-    my $dht = Net::BitTorrent::DHT->new(
-        node_id_bin => pack("H*", "0123456789abcdef0123456789abcdef01234567"),
-        port => 6881
-    );
-
-    # Ping a bootstrap node
-    $dht->ping('router.bittorrent.com', 6881);
-
-=head1 DESCRIPTION
-
-Implements the BitTorrent DHT protocol (BEP 5) using the generic
-L<Net::Kademlia> routing logic and BEP 3 Bencode serialization.
-
-=cut
