@@ -1,0 +1,4 @@
+name = "Net-BitTorrent-DHT"
+abstract = "BitTorrent Mainline DHT implementation"
+authority = "cpan:USER"
+
