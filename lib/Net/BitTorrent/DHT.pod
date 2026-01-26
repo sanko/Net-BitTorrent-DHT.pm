@@ -34,11 +34,11 @@ serialization.
 
 =head1 METHODS
 
-=head2 C<new( node_id_bin =E<gt> ..., [ port =E<gt> 6881, address =E<gt> ..., want_v4 =E<gt> 1, want_v6 =E<gt> 1, bep32 =E<gt> 1 ] )>
+=head2 C<new( node_id_bin =E<gt> ..., [ port =E<gt> 6881, address =E<gt> ..., want_v4 =E<gt> 1, want_v6 =E<gt> 1, bep32 =E<gt> 1, bep51 =E<gt> 1, timeout =E<gt> 0 ] )>
 
 Constructor. C<node_id_bin> must be a 20-byte binary string.
 
-=over 4
+=over
 
 =item C<want_v4>
 
@@ -53,35 +53,102 @@ Enable or disable IPv6 support. Defaults to 1.
 Enable or disable BEP 32 (IPv6 extensions). When enabled, C<find_node> and C<get_peers> responses will include both
 C<nodes> and C<nodes6> fields. Defaults to 1.
 
+=item C<bep33>
+
+Enable or disable BEP 33 (DHT Scraping). When enabled, the node will support C<scrape_peers> queries and
+C<announce_peer> will include the C<seed> flag. Defaults to 1.
+
+=item C<bep44>
+
+Enable or disable BEP 44 (Storing Arbitrary Data in the DHT). When enabled, the node will support C<get> and C<put>
+queries for immutable and mutable data. Defaults to 1.
+
+=item C<bep51>
+
+Enable or disable BEP 51 (Infohash Indexing). When enabled, the node will support C<sample_infohashes> queries.
+Defaults to 1.
+
+=item C<read_only>
+
+When set to a true value, the node will include the C<ro> flag (BEP 43) in all queries, indicating that it should not
+be added to the routing tables of remote nodes. Defaults to 0.
+
 =back
 
 =head2 C<bootstrap( )>
 
-Sends C<ping> and C<find_node> requests to well-known router nodes to populate the initial routing table.
-
-=head2 C<tick( [ $timeout ] )>
-
-Processes any pending incoming UDP packets. Returns two array references: C<($learned_nodes, $found_peers)>.
+Seeds the routing table by querying a set of hardcoded bootstrap nodes (routers). This is typically the first method
+called after instantiation to join the DHT network.
 
 =head2 C<ping( $addr, $port )>
 
-Sends a C<ping> query to the specified node.
+Sends a C<ping> query to the specified address and port.
 
 =head2 C<find_node_remote( $target_id, $addr, $port )>
 
-Sends a C<find_node> query for the specified target ID.
+Sends a C<find_node> query for the specified 20-byte target ID.
 
 =head2 C<get_peers( $info_hash, $addr, $port )>
 
 Sends a C<get_peers> query for the specified info-hash.
 
-=head2 C<announce_peer( $info_hash, $token, $announce_port, $addr, $port )>
+=head2 C<get_remote( $target, $addr, $port )>
 
-Sends an C<announce_peer> query. Requires a C<token> received from a previous C<get_peers> call.
+Sends a C<get> query (BEP 44) for the specified target.
+
+=head2 C<put_remote( \%args, $addr, $port )>
+
+Sends a C<put> query (BEP 44). C<\%args> must contain C<v> (value) and for mutable data also C<k> (public key), C<sig>
+(signature), C<seq> (sequence number), and optionally C<salt> and C<cas>.
+
+=head2 C<scrape_peers_remote( $info_hash, $addr, $port )>
+
+Sends a C<scrape_peers> query (BEP 33) for the specified info-hash.
+
+=head2 C<sample_infohashes_remote( $target, $addr, $port )>
+
+Sends a C<sample_infohashes> query (BEP 51) to the specified address. C<$target> is a 20-byte binary string.
+
+=head2 C<export_state( )>
+
+Returns a HASH reference containing the current node ID, routing tables (IPv4 and IPv6), peer storage, and hosted
+mutable data. This is useful for persisting the DHT state between restarts.
+
+=head2 C<import_state( $state )>
+
+Restores the DHT state from a HASH reference previously returned by C<export_state()>. This includes routing tables,
+peer storage, and hosted mutable data.
+
+=head2 C<tick( [ $timeout ] )>
+
+Processes any incoming UDP packets. Returns three list references: C<$new_nodes>, C<$found_peers>, and C<$data>.
+C<$new_nodes> is a list of newly discovered nodes. C<$found_peers> is a list of discovered peers. C<$data> is a hash
+reference of data if a BEP 44 'get' response was received or BEP 51 samples if 'sample_infohashes' response was
+received. C<$timeout> is the maximum time to wait for data (in seconds).
+
+=head2 C<handle_incoming( )>
+
+Reads a single packet from the socket and processes it. Returns the same three list references as C<tick()>. Use this
+if you are using your own event loop (e.g., C<IO::Async>).
 
 =head2 C<run( )>
 
 Enters an infinite loop calling C<tick()>.
+
+=head1 BEP 44 SUPPORT
+
+BEP 44 (Storing Arbitrary Data in the DHT) requires an Ed25519 implementation for signing and verifying mutable data.
+C<Net::BitTorrent::DHT> automatically detects and uses one of the following modules, in order of preference:
+
+=over
+
+=item 1. L<Crypt::PK::Ed25519>
+
+=item 2. L<Crypt::Perl::Ed25519::PublicKey>
+
+=back
+
+If none of these modules are available, BEP 44 support will be automatically disabled (C<bep44> will be set to 0).
 
 =head1 IPv6 SUPPORT
 

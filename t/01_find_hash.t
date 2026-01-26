@@ -15,7 +15,7 @@ subtest 'Iterative Network Search' => sub {
     my $timeout    = 30;
     while ( time - $start_time < $timeout ) {
 
-        # 1. Process packets and learn nodes/peers
+        # Process packets and learn nodes/peers
         my ( $new_nodes, $new_peers ) = $dht->tick();
         if ( $new_peers && @$new_peers ) {
             $peer_found = 1;
@@ -27,7 +27,7 @@ subtest 'Iterative Network Search' => sub {
             $candidates{$nid_hex} = { id => $node->{id}, ip => $node->{ip}, port => $node->{port}, visited => 0 };
         }
 
-        # 2. Add routing table nodes to frontier
+        # Add routing table nodes to frontier
         my @closest_in_table = $dht->routing_table->find_closest( $info_hash, 50 );
         for my $node (@closest_in_table) {
             my $nid_hex = unpack( "H*", $node->{id} );
@@ -35,7 +35,7 @@ subtest 'Iterative Network Search' => sub {
             $candidates{$nid_hex} = { id => $node->{id}, ip => $node->{data}{ip}, port => $node->{data}{port}, visited => 0 };
         }
 
-        # 3. Query next batch
+        # Query next batch
         my @to_query = sort { ( $a->{id} ^.$info_hash ) cmp( $b->{id} ^.$info_hash ) } grep { !$_->{visited} && $_->{ip} } values %candidates;
         if (@to_query) {
             my $count = 0;

@@ -28,6 +28,19 @@
          "eg"
       ]
    },
+   "optional_features" : {
+      "BEP44" : {
+         "description" : "BEP44: Storing arbitrary data in the DHT",
+         "prereqs" : {
+            "runtime" : {
+               "suggests" : {
+                  "Crypt::PK::Ed25519" : "0",
+                  "Crypt::Perl::Ed25519::PublicKey" : "0"
+               }
+            }
+         }
+      }
+   },
    "prereqs" : {
       "build" : {
          "requires" : {

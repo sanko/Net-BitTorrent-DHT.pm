@@ -34,7 +34,7 @@ serialization.
 
 # METHODS
 
-## `new( node_id_bin => ..., [ port => 6881, address => ..., want_v4 => 1, want_v6 => 1, bep32 => 1 ] )`
+## `new( node_id_bin => ..., [ port => 6881, address => ..., want_v4 => 1, want_v6 => 1, bep32 => 1, bep51 => 1, timeout => 0 ] )`
 
 Constructor. `node_id_bin` must be a 20-byte binary string.
 
@@ -51,33 +51,95 @@ Constructor. `node_id_bin` must be a 20-byte binary string.
     Enable or disable BEP 32 (IPv6 extensions). When enabled, `find_node` and `get_peers` responses will include both
     `nodes` and `nodes6` fields. Defaults to 1.
 
+- `bep33`
+
+    Enable or disable BEP 33 (DHT Scraping). When enabled, the node will support `scrape_peers` queries and
+    `announce_peer` will include the `seed` flag. Defaults to 1.
+
+- `bep44`
+
+    Enable or disable BEP 44 (Storing Arbitrary Data in the DHT). When enabled, the node will support `get` and `put`
+    queries for immutable and mutable data. Defaults to 1.
+
+- `bep51`
+
+    Enable or disable BEP 51 (Infohash Indexing). When enabled, the node will support `sample_infohashes` queries.
+    Defaults to 1.
+
+- `read_only`
+
+    When set to a true value, the node will include the `ro` flag (BEP 43) in all queries, indicating that it should not
+    be added to the routing tables of remote nodes. Defaults to 0.
+
 ## `bootstrap( )`
 
-Sends `ping` and `find_node` requests to well-known router nodes to populate the initial routing table.
-
-## `tick( [ $timeout ] )`
-
-Processes any pending incoming UDP packets. Returns two array references: `($learned_nodes, $found_peers)`.
+Seeds the routing table by querying a set of hardcoded bootstrap nodes (routers). This is typically the first method
+called after instantiation to join the DHT network.
 
 ## `ping( $addr, $port )`
 
-Sends a `ping` query to the specified node.
+Sends a `ping` query to the specified address and port.
 
 ## `find_node_remote( $target_id, $addr, $port )`
 
-Sends a `find_node` query for the specified target ID.
+Sends a `find_node` query for the specified 20-byte target ID.
 
 ## `get_peers( $info_hash, $addr, $port )`
 
 Sends a `get_peers` query for the specified info-hash.
 
-## `announce_peer( $info_hash, $token, $announce_port, $addr, $port )`
+## `get_remote( $target, $addr, $port )`
 
-Sends an `announce_peer` query. Requires a `token` received from a previous `get_peers` call.
+Sends a `get` query (BEP 44) for the specified target.
+
+## `put_remote( \%args, $addr, $port )`
+
+Sends a `put` query (BEP 44). `\%args` must contain `v` (value) and for mutable data also `k` (public key), `sig`
+(signature), `seq` (sequence number), and optionally `salt` and `cas`.
+
+## `scrape_peers_remote( $info_hash, $addr, $port )`
+
+Sends a `scrape_peers` query (BEP 33) for the specified info-hash.
+
+## `sample_infohashes_remote( $target, $addr, $port )`
+
+Sends a `sample_infohashes` query (BEP 51) to the specified address. `$target` is a 20-byte binary string.
+
+## `export_state( )`
+
+Returns a HASH reference containing the current node ID, routing tables (IPv4 and IPv6), peer storage, and hosted
+mutable data. This is useful for persisting the DHT state between restarts.
+
+## `import_state( $state )`
+
+Restores the DHT state from a HASH reference previously returned by `export_state()`. This includes routing tables,
+peer storage, and hosted mutable data.
+
+## `tick( [ $timeout ] )`
+
+Processes any incoming UDP packets. Returns three list references: `$new_nodes`, `$found_peers`, and `$data`.
+`$new_nodes` is a list of newly discovered nodes. `$found_peers` is a list of discovered peers. `$data` is a hash
+reference of data if a BEP 44 'get' response was received or BEP 51 samples if 'sample\_infohashes' response was
+received. `$timeout` is the maximum time to wait for data (in seconds).
+
+## `handle_incoming( )`
+
+Reads a single packet from the socket and processes it. Returns the same three list references as `tick()`. Use this
+if you are using your own event loop (e.g., `IO::Async`).
 
 ## `run( )`
 
 Enters an infinite loop calling `tick()`.
+
+# BEP 44 SUPPORT
+
+BEP 44 (Storing Arbitrary Data in the DHT) requires an Ed25519 implementation for signing and verifying mutable data.
+`Net::BitTorrent::DHT` automatically detects and uses one of the following modules, in order of preference:
+
+- 1. [Crypt::PK::Ed25519](https://metacpan.org/pod/Crypt%3A%3APK%3A%3AEd25519)
+- 2. [Crypt::Perl::Ed25519::PublicKey](https://metacpan.org/pod/Crypt%3A%3APerl%3A%3AEd25519%3A%3APublicKey)
+
+If none of these modules are available, BEP 44 support will be automatically disabled (`bep44` will be set to 0).
 
 # IPv6 SUPPORT
 
