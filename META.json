@@ -66,6 +66,9 @@
       },
       "Net::BitTorrent::DHT::Peer" : {
          "file" : "lib/Net/BitTorrent/DHT.pm"
+      },
+      "Net::BitTorrent::DHT::Security" : {
+         "file" : "lib/Net/BitTorrent/DHT/Security.pm"
       }
    },
    "release_status" : "stable",

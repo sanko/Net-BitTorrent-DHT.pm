@@ -118,7 +118,7 @@ jobs:
       - env:
           DATA: |
             {
-              "perl":  ["5.40.2", "5.42.0"],
+              "perl":  ["5.42.0"],
               "flags": ["", "-Dusethreads", "-Duselongdouble", "-Dusequadmath"]
             }
         id: matrix

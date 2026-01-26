@@ -2,9 +2,11 @@ use v5.40;
 use lib 'lib', '../lib';
 use Test2::V0;
 use Net::BitTorrent::DHT;
+use Net::BitTorrent::DHT::Security;
 use Net::BitTorrent::Protocol::BEP03::Bencode qw[bencode bdecode];
 subtest 'Token Management' => sub {
-    my $id    = pack( "C*", (1) x 20 );
+    my $sec   = Net::BitTorrent::DHT::Security->new();
+    my $id    = $sec->generate_node_id('127.0.0.1');
     my $node  = Net::BitTorrent::DHT->new( node_id_bin => $id, port => 16881 );
     my $ip    = "1.2.3.4";
     my $token = $node->_generate_token($ip);
@@ -13,7 +15,8 @@ subtest 'Token Management' => sub {
     ok !$node->_verify_token( "5.6.7.8", $token ), "Token failed for different IP";
 };
 subtest 'Announce Peer Flow' => sub {
-    my $id   = pack( "C*", (1) x 20 );
+    my $sec  = Net::BitTorrent::DHT::Security->new();
+    my $id   = $sec->generate_node_id('127.0.0.1');
     my $node = Net::BitTorrent::DHT->new( node_id_bin => $id, port => 16882 );
 
     # Mock _send_raw to do nothing
@@ -30,7 +33,7 @@ subtest 'Announce Peer Flow' => sub {
         t => 'aa',
         y => 'q',
         q => 'announce_peer',
-        a => { id => pack( "C*", (2) x 20 ), info_hash => $info_hash, port => 9999, token => $token }
+        a => { id => $sec->generate_node_id($ip), info_hash => $info_hash, port => 9999, token => $token }
     };
 
     # Manually trigger query handler (mocking the sender info)

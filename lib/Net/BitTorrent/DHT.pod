@@ -34,9 +34,26 @@ serialization.
 
 =head1 METHODS
 
-=head2 C<new( node_id_bin =E<gt> ..., [ port =E<gt> 6881, address =E<gt> ... ] )>
+=head2 C<new( node_id_bin =E<gt> ..., [ port =E<gt> 6881, address =E<gt> ..., want_v4 =E<gt> 1, want_v6 =E<gt> 1, bep32 =E<gt> 1 ] )>
 
 Constructor. C<node_id_bin> must be a 20-byte binary string.
+
+=over 4
+
+=item C<want_v4>
+
+Enable or disable IPv4 support. Defaults to 1.
+
+=item C<want_v6>
+
+Enable or disable IPv6 support. Defaults to 1.
+
+=item C<bep32>
+
+Enable or disable BEP 32 (IPv6 extensions). When enabled, C<find_node> and C<get_peers> responses will include both
+C<nodes> and C<nodes6> fields. Defaults to 1.
+
+=back
 
 =head2 C<bootstrap( )>
 

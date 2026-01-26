@@ -1,16 +1,18 @@
 use v5.40;
 use lib '../lib', '../../Algorithm-Kademlia/lib';
 use Net::BitTorrent::DHT;
+use Net::BitTorrent::DHT::Security;
 $|++;
 
 # The Linux ISO hash provided
 my $info_hash_hex = '86f635034839f1ebe81ab96bee4ac59f61db9dde';
 my $info_hash     = pack( 'H*', $info_hash_hex );
 
-# Generate a random 20-byte Node ID
-my $id = pack( 'C*', map { int( rand(256) ) } 1 .. 20 );
+# Generate a valid BEP 42 Node ID (though we disable validation for incoming)
+my $sec = Net::BitTorrent::DHT::Security->new();
+my $id  = $sec->generate_node_id('127.0.0.1');
 $ENV{DEBUG} //= 1;
-my $dht = Net::BitTorrent::DHT->new( node_id_bin => $id, port => 6881 + int( rand(100) ), debug => 0 );
+my $dht = Net::BitTorrent::DHT->new( node_id_bin => $id, port => 6881 + int( rand(100) ), debug => 0, bep42 => 0 );
 say '[DEMO] Seeking peers for hash: ' . $info_hash_hex;
 $dht->bootstrap();
 

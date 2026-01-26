@@ -1,11 +1,15 @@
 use v5.40;
 use lib '../lib';
 use Net::BitTorrent::DHT;
+use Net::BitTorrent::DHT::Security;
 $|++;
 
-# Generate a random 20-byte Node ID
-my $id  = pack( "C*", map { int( rand(256) ) } 1 .. 20 );
-my $dht = Net::BitTorrent::DHT->new( node_id_bin => $id, port => 6881 + int( rand(100) ) );
+# Generate a valid BEP 42 Node ID
+my $sec = Net::BitTorrent::DHT::Security->new();
+my $id  = $sec->generate_node_id('127.0.0.1');                                                            # Default for local testing
+my $dht = Net::BitTorrent::DHT->new( node_id_bin => $id, port => 6881 + int( rand(100) ), debug => 1 );
+say "[INFO] Starting DHT node on port " . $dht->port . "...";
+say "[INFO] Node ID: " . unpack( "H*", $id );
 
 # This will enter an infinite loop
-$dht->start_loop();
+$dht->run();

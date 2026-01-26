@@ -2,10 +2,12 @@ use v5.40;
 use lib 'lib', '../lib';
 use Test2::V0;
 use Net::BitTorrent::DHT;
+use Net::BitTorrent::DHT::Security;
 $|++;
 subtest 'Local Ping/Pong' => sub {
-    my $id1   = pack( "C*", (1) x 20 );
-    my $id2   = pack( "C*", (2) x 20 );
+    my $sec   = Net::BitTorrent::DHT::Security->new();
+    my $id1   = $sec->generate_node_id('127.0.0.1');
+    my $id2   = $sec->generate_node_id('127.0.0.1');
     my $node1 = Net::BitTorrent::DHT->new( node_id_bin => $id1, port => 16881, address => '127.0.0.1' );
     my $node2 = Net::BitTorrent::DHT->new( node_id_bin => $id2, port => 16882, address => '127.0.0.1' );
 

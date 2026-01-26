@@ -10,6 +10,7 @@ class Net::BitTorrent::DHT::Peer {
 }
 class Net::BitTorrent::DHT v2.0.0 {
     use Algorithm::Kademlia;
+    use Net::BitTorrent::DHT::Security;
     use Net::BitTorrent::Protocol::BEP03::Bencode qw[bencode bdecode];
     use IO::Socket::IP;
     use Socket
@@ -17,35 +18,50 @@ class Net::BitTorrent::DHT v2.0.0 {
     use IO::Select;
     use Digest::SHA qw[sha1];
     field $node_id_bin : param : reader;
-    field $port          : param : reader = 6881;
-    field $address       : param  = undef;
-    field $want_v4       : param  = 1;
-    field $want_v6       : param  = 1;
-    field $routing_table : reader = Algorithm::Kademlia::RoutingTable->new( local_id_bin => $node_id_bin, k => 8 );
-    field $peer_storage  : reader = Algorithm::Kademlia::Storage->new( ttl => 7200 );
-    field $socket        : param : reader //= IO::Socket::IP->new( LocalAddr => $address, LocalPort => $port, Proto => 'udp', Blocking => 0 );
+    field $port             : param : reader = 6881;
+    field $address          : param  = undef;
+    field $want_v4          : param  = 1;
+    field $want_v6          : param  = 1;
+    field $bep32            : param  = 1;
+    field $bep42            : param  = 1;
+    field $security         : reader = Net::BitTorrent::DHT::Security->new();
+    field $routing_table_v4 : reader = Algorithm::Kademlia::RoutingTable->new( local_id_bin => $node_id_bin, k => 8 );
+    field $routing_table_v6 : reader = Algorithm::Kademlia::RoutingTable->new( local_id_bin => $node_id_bin, k => 8 );
+    field $peer_storage     : reader = Algorithm::Kademlia::Storage->new( ttl => 7200 );
+    field $socket           : param : reader //= IO::Socket::IP->new( LocalAddr => $address, LocalPort => $port, Proto => 'udp', Blocking => 0 );
     field $select //= IO::Select->new($socket);
     field $debug : param : writer = 0;
     field $token_secret           = pack( "N", rand( 2**32 ) ) . pack( "N", rand( 2**32 ) );
     field $token_old_secret       = $token_secret;
     field $last_rotation          = time();
+    field @routers
+        //= ( [ 'router.bittorrent.com', 6881 ], [ 'router.utorrent.com', 6881 ], [ 'dht.transmissionbt.com', 6881 ], [ 'dht.aelitis.com', 6881 ] );
     ADJUST {
         $socket // die "Could not create UDP socket: $!"
     }
+    method routing_table () {$routing_table_v4}    # Backward compatibility
 
     method export_state () {
-        my @all_nodes;
-        for my $bucket ( $routing_table->buckets ) {
-            push @all_nodes, map { { id => $_->{id}, ip => $_->{data}{ip}, port => $_->{data}{port} } } @$bucket;
+        my @nodes_v4;
+        for my $bucket ( $routing_table_v4->buckets ) {
+            push @nodes_v4, map { { id => $_->{id}, ip => $_->{data}{ip}, port => $_->{data}{port} } } @$bucket;
         }
-        return { id => $node_id_bin, nodes => \@all_nodes, peers => $peer_storage->entries, };
+        my @nodes_v6;
+        for my $bucket ( $routing_table_v6->buckets ) {
+            push @nodes_v6, map { { id => $_->{id}, ip => $_->{data}{ip}, port => $_->{data}{port} } } @$bucket;
+        }
+        return { id => $node_id_bin, nodes => \@nodes_v4, nodes6 => \@nodes_v6, peers => $peer_storage->entries, };
     }
 
     method import_state ($state) {
         $node_id_bin = $state->{id} if defined $state->{id};
         if ( $state->{nodes} ) {
             my @to_import = map { { id => $_->{id}, data => { ip => $_->{ip}, port => $_->{port} } } } $state->{nodes}->@*;
-            $routing_table->import_peers( \@to_import );
+            $routing_table_v4->import_peers( \@to_import );
+        }
+        if ( $state->{nodes6} ) {
+            my @to_import = map { { id => $_->{id}, data => { ip => $_->{ip}, port => $_->{port} } } } $state->{nodes6}->@*;
+            $routing_table_v6->import_peers( \@to_import );
         }
         if ( $state->{peers} ) {
             for my ( $hash, $info )( $state->{peers}->%* ) {
@@ -74,13 +90,9 @@ class Net::BitTorrent::DHT v2.0.0 {
     }
 
     method bootstrap () {
-        return unless $want_v4;
-        my @routers
-            = ( [ 'router.bittorrent.com', 6881 ], [ 'router.utorrent.com', 6881 ], [ 'dht.transmissionbt.com', 6881 ], [ 'dht.aelitis.com', 6881 ],
-            );
         for my $r (@routers) {
-            $self->ping(@$r);
-            $self->find_node_remote( $node_id_bin, @$r );
+            $self->ping( $r->@* );
+            $self->find_node_remote( $node_id_bin, $r->@* );
         }
     }
 
@@ -117,6 +129,10 @@ class Net::BitTorrent::DHT v2.0.0 {
     method handle_incoming () {
         my $sender = $socket->recv( my $data, 4096 );
         return ( [], [] ) unless defined $data && length $data;
+        if ($debug) {
+            my ( $p, $i ) = $self->_unpack_address($sender);
+            say "[DEBUG] Incoming " . length($data) . " bytes from $i:$p";
+        }
         my $msg = eval { bdecode($data) };
         return ( [], [] ) if $@ || ref($msg) ne 'HASH';
         my ( $port, $ip ) = $self->_unpack_address($sender);
@@ -147,20 +163,28 @@ class Net::BitTorrent::DHT v2.0.0 {
     }
 
     method _handle_query ( $msg, $sender, $ip, $port ) {
-        my $q     = $msg->{q} // return;
-        my $a     = $msg->{a} // return;
-        my $id    = $a->{id}  // return;
-        my $stale = $routing_table->add_peer( $id, { ip => $ip, port => $port } );
+        my $q  = $msg->{q} // return;
+        my $a  = $msg->{a} // return;
+        my $id = $a->{id}  // return;
+        if ( $bep42 && !$security->validate_node_id( $id, $ip ) ) {
+
+            # BEP 42: Reject nodes with invalid IDs
+            return;
+        }
+        my $table = ( $ip =~ /:/ ) ? $routing_table_v6 : $routing_table_v4;
+        my $stale = $table->add_peer( $id, { ip => $ip, port => $port } );
         if ($stale) {
-            $self->ping( $stale->{data}{ip}, $stale->{data}{port} )
-                if ( $stale->{data}{ip} !~ /:/ && $want_v4 ) || ( $stale->{data}{ip} =~ /:/ && $want_v6 );
+            $self->ping( $stale->{data}{ip}, $stale->{data}{port} );
         }
         my $res = { t => $msg->{t}, y => 'r', r => { id => $node_id_bin } };
         if    ( $q eq 'ping' ) { }
         elsif ( $q eq 'find_node' ) {
-            my ( $v4, $v6 ) = $self->_pack_nodes( [ $routing_table->find_closest( $a->{target} ) ] );
+            my @closest;
+            push @closest, $routing_table_v4->find_closest( $a->{target} ) if $want_v4;
+            push @closest, $routing_table_v6->find_closest( $a->{target} ) if $want_v6 && $bep32;
+            my ( $v4, $v6 ) = $self->_pack_nodes( \@closest );
             $res->{r}{nodes}  = $v4 if $v4 && $want_v4;
-            $res->{r}{nodes6} = $v6 if $v6 && $want_v6;
+            $res->{r}{nodes6} = $v6 if $v6 && $want_v6 && $bep32;
         }
         elsif ( $q eq 'get_peers' ) {
             my $info_hash = $a->{info_hash};
@@ -171,9 +195,12 @@ class Net::BitTorrent::DHT v2.0.0 {
                 $res->{r}{values} = $self->_pack_peers_raw( \@filtered );
             }
             else {
-                my ( $v4, $v6 ) = $self->_pack_nodes( [ $routing_table->find_closest($info_hash) ] );
+                my @closest;
+                push @closest, $routing_table_v4->find_closest($info_hash) if $want_v4;
+                push @closest, $routing_table_v6->find_closest($info_hash) if $want_v6 && $bep32;
+                my ( $v4, $v6 ) = $self->_pack_nodes( \@closest );
                 $res->{r}{nodes}  = $v4 if $v4 && $want_v4;
-                $res->{r}{nodes6} = $v6 if $v6 && $want_v6;
+                $res->{r}{nodes6} = $v6 if $v6 && $want_v6 && $bep32;
             }
         }
         elsif ( $q eq 'announce_peer' ) {
@@ -193,10 +220,13 @@ class Net::BitTorrent::DHT v2.0.0 {
     method _handle_response ( $msg, $sender, $ip, $port ) {
         my $r = $msg->{r};
         return ( [], [] ) unless $r && $r->{id};
-        my $stale = $routing_table->add_peer( $r->{id}, { ip => $ip, port => $port } );
+        if ( $bep42 && !$security->validate_node_id( $r->{id}, $ip ) ) {
+            return ( [], [] );
+        }
+        my $table = ( $ip =~ /:/ ) ? $routing_table_v6 : $routing_table_v4;
+        my $stale = $table->add_peer( $r->{id}, { ip => $ip, port => $port } );
         if ($stale) {
-            $self->ping( $stale->{data}{ip}, $stale->{data}{port} )
-                if ( $stale->{data}{ip} !~ /:/ && $want_v4 ) || ( $stale->{data}{ip} =~ /:/ && $want_v6 );
+            $self->ping( $stale->{data}{ip}, $stale->{data}{port} );
         }
         my $peers = [];
         if ( $r->{values} ) {
@@ -210,7 +240,11 @@ class Net::BitTorrent::DHT v2.0.0 {
             push @learned, $self->_unpack_nodes( $r->{nodes6}, AF_INET6 )->@*;
         }
         for my $node (@learned) {
-            $routing_table->add_peer( $node->{id}, { ip => $node->{ip}, port => $node->{port} } );
+            if ( $bep42 && !$security->validate_node_id( $node->{id}, $node->{ip} ) ) {
+                next;
+            }
+            my $ntable = ( $node->{ip} =~ /:/ ) ? $routing_table_v6 : $routing_table_v4;
+            $ntable->add_peer( $node->{id}, { ip => $node->{ip}, port => $node->{port} } );
         }
 
         # Always include the responding node itself
@@ -219,13 +253,24 @@ class Net::BitTorrent::DHT v2.0.0 {
     }
 
     method _send ( $msg, $addr, $port ) {
-        return if ( $addr =~ /:/ && !$want_v6 ) || ( $addr !~ /:/ && !$want_v4 );
         my ( $err, @res ) = getaddrinfo( $addr, $port, { socktype => SOCK_DGRAM } );
         return if $err || !@res;
-        $self->_send_raw( bencode($msg), $res[0]{addr} );
+        for my $res (@res) {
+            my $family = sockaddr_family( $res->{addr} );
+            if ( $family == AF_INET && $want_v4 ) {
+                $self->_send_raw( bencode($msg), $res->{addr} );
+            }
+            elsif ( $family == AF_INET6 && $want_v6 ) {
+                $self->_send_raw( bencode($msg), $res->{addr} );
+            }
+        }
     }
 
     method _send_raw ( $data, $dest ) {
+        if ($debug) {
+            my ( $p, $i ) = $self->_unpack_address($dest);
+            say "[DEBUG] Sending " . length($data) . " bytes to $i:$p";
+        }
         $socket->send( $data, 0, $dest );
     }
 
@@ -291,6 +336,13 @@ class Net::BitTorrent::DHT v2.0.0 {
                     ( inet_aton( $_->{ip} ) . pack( "n", $_->{port} ) )
             } @$peers
         ];
+    }
+
+    method run () {
+        $self->bootstrap();
+        while (1) {
+            $self->tick(1);
+        }
     }
 };
 1;

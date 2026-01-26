@@ -2,15 +2,17 @@ use v5.40;
 use lib 'lib', '../lib';
 use Test2::V0;
 use Net::BitTorrent::DHT;
+use Net::BitTorrent::DHT::Security;
 subtest 'Local Swarm Search' => sub {
     my $node_count = 20;    # 20 nodes is plenty for a visible crawl
     my @nodes;
-    my $info_hash        = pack( "H*", "ff" . ( "00" x 19 ) );    # Very "high" hash
+    my $sec              = Net::BitTorrent::DHT::Security->new();
+    my $info_hash        = pack( "H*", "ff" . ( "00" x 19 ) );      # Very "high" hash
     my $target_peer_ip   = "10.0.0.20";
     my $target_peer_port = 5555;
     say "[DIAG] Creating $node_count nodes...";
     for my $i ( 0 .. $node_count - 1 ) {
-        my $id  = pack( "C*", ( $i + 1 ) ) . ( "\0" x 19 );
+        my $id  = $sec->generate_node_id('127.0.0.1');
         my $dht = Net::BitTorrent::DHT->new( node_id_bin => $id, port => 17000 + $i, address => '127.0.0.1' );
         push @nodes, $dht;
     }

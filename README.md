@@ -34,9 +34,22 @@ serialization.
 
 # METHODS
 
-## `new( node_id_bin => ..., [ port => 6881, address => ... ] )`
+## `new( node_id_bin => ..., [ port => 6881, address => ..., want_v4 => 1, want_v6 => 1, bep32 => 1 ] )`
 
 Constructor. `node_id_bin` must be a 20-byte binary string.
+
+- `want_v4`
+
+    Enable or disable IPv4 support. Defaults to 1.
+
+- `want_v6`
+
+    Enable or disable IPv6 support. Defaults to 1.
+
+- `bep32`
+
+    Enable or disable BEP 32 (IPv6 extensions). When enabled, `find_node` and `get_peers` responses will include both
+    `nodes` and `nodes6` fields. Defaults to 1.
 
 ## `bootstrap( )`
 

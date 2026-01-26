@@ -1,13 +1,15 @@
 #!/usr/bin/env perl
 use v5.40;
-use lib 'lib', '../lib', '../../Algorithm-Kademlia/lib', '../../Net-BitTorrent-Protocol-BEP03-Bencode/lib';
+use lib 'lib', '../lib';
 use Net::BitTorrent::DHT;
+use Net::BitTorrent::DHT::Security;
 $|++;
 unless ( eval { require IO::Async::Loop; require IO::Async::Handle; require IO::Async::Timer::Periodic; 1 } ) {
     die "IO::Async is required for this example. Install it via 'cpanm IO::Async'\n";
 }
-my $id   = pack( 'C*', map { int( rand(256) ) } 1 .. 20 );
-my $dht  = Net::BitTorrent::DHT->new( node_id_bin => $id, port => 6881, debug => 0 );
+my $sec  = Net::BitTorrent::DHT::Security->new();
+my $id   = $sec->generate_node_id('127.0.0.1');
+my $dht  = Net::BitTorrent::DHT->new( node_id_bin => $id, port => 6881, debug => 0, bep42 => 0 );
 my $loop = IO::Async::Loop->new;
 my %candidates;
 my %seen_peers;
