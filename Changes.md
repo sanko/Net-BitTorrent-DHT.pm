@@ -2,7 +2,7 @@
 
 All notable changes to Net::BitTorrent::DHT will be documented in this file.
 
-## [Unreleased]
+## [v2.0.0] - 2026-01-26
 
 This is a total rewrite. I was breaking apart the Kademlia stuff into smaller pieces for a larger, non-BitTorrent related project so I spent a day on this...
 
