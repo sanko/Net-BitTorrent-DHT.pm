@@ -40,6 +40,7 @@ class Net::BitTorrent::DHT v2.0.0 {
     field $last_rotation    = time();
     field $boot_nodes : param : reader : writer //= [ [ 'router.bittorrent.com', 6881 ], [ 'router.utorrent.com', 6881 ],
         [ 'dht.transmissionbt.com', 6881 ], [ 'dht.aelitis.com', 6881 ] ];
+    field $v : param : reader //= ();
     field $_ed25519_backend = ();
     field $running          = 0;
     #
@@ -218,6 +219,7 @@ class Net::BitTorrent::DHT v2.0.0 {
             $self->ping( $stale->{data}{ip}, $stale->{data}{port} ) if $stale;
         }
         my $res = { t => $msg->{t}, y => 'r', r => { id => $node_id_bin } };
+        $res->{v} = $v if defined $v;
         if    ( $q eq 'ping' ) { }
         elsif ( $q eq 'find_node' ) {
             my @closest;
@@ -401,7 +403,8 @@ class Net::BitTorrent::DHT v2.0.0 {
     }
 
     method _send ( $msg, $addr, $port ) {
-        $msg->{a}{ro} = 1 if $read_only && $msg->{y} eq 'q';
+        $msg->{v}     = $v if defined $v;
+        $msg->{a}{ro} = 1  if $read_only && $msg->{y} eq 'q';
         my ( $err, @res ) = getaddrinfo( $addr, $port, { socktype => SOCK_DGRAM } );
         return if $err || !@res;
         for my $res (@res) {

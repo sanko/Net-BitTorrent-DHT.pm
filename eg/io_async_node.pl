@@ -4,21 +4,22 @@ use lib 'lib', '../lib';
 use Net::BitTorrent::DHT;
 use Net::BitTorrent::DHT::Security;
 $|++;
-unless ( eval { require IO::Async::Loop; require IO::Async::Handle; require IO::Async::Timer::Periodic; 1 } ) {
-    die "IO::Async is required for this example. Install it via 'cpanm IO::Async'\n";
-}
+use IO::Async::Loop;
+use IO::Async::Handle;
+use IO::Async::Timer::Periodic;
+#
 my $sec  = Net::BitTorrent::DHT::Security->new();
 my $id   = $sec->generate_node_id('127.0.0.1');
-my $dht  = Net::BitTorrent::DHT->new( node_id_bin => $id, port => 6881, debug => 0, bep42 => 0 );
+my $dht  = Net::BitTorrent::DHT->new( node_id_bin => $id, port => 6881, bep42 => 0 );
 my $loop = IO::Async::Loop->new;
 my %candidates;
 my %seen_peers;
-my $info_hash = pack( "H*", "86f635034839f1ebe81ab96bee4ac59f61db9dde" );    # Debian hash
+my $info_hash = pack( 'H*', '86f635034839f1ebe81ab96bee4ac59f61db9dde' );    # Debian hash
 
 sub add_to_frontier (@nodes) {
     my $new_count = 0;
     for my $n (@nodes) {
-        my $hex = unpack( "H*", $n->{id} );
+        my $hex = unpack( 'H*', $n->{id} );
 
         # Robust format handling
         my $ip   = $n->{ip}   // ( $n->{data} ? $n->{data}{ip}   : undef );
@@ -45,7 +46,7 @@ my $handle = IO::Async::Handle->new(
             for my $p (@$peers) {
                 my $key = $p->to_string;
                 unless ( $seen_peers{$key}++ ) {
-                    say "[ASYNC] !!! FOUND PEER: $key (v" . $p->family . ")";
+                    say "[ASYNC] !!! FOUND PEER: $key (v" . $p->family . ')';
                 }
             }
         }
@@ -57,7 +58,7 @@ $loop->add($handle);
 $loop->watch_time(
     after => 0,
     code  => sub {
-        say "[ASYNC] Bootstrapping via public routers...";
+        say '[ASYNC] Bootstrapping via public routers...';
         $dht->bootstrap();
     }
 );
@@ -80,14 +81,14 @@ my $timer = IO::Async::Timer::Periodic->new(
                 $c->{visited} = 1;
             }
             say sprintf(
-                "[ASYNC] Progress: RT=%d | Frontier=%d | ClosestFound=%s",
+                '[ASYNC] Progress: RT=%d | Frontier=%d | ClosestFound=%s',
                 $dht->routing_table->size,
                 scalar( keys %candidates ),
-                unpack( "H*", $batch[0]{id} )
+                unpack( 'H*', $batch[0]{id} )
             );
         }
         else {
-            say "[ASYNC] Frontier exhausted. Re-bootstrapping...";
+            say '[ASYNC] Frontier exhausted. Re-bootstrapping...';
             $dht->bootstrap();
         }
     }

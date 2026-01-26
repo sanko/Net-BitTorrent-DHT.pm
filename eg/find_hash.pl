@@ -1,5 +1,5 @@
 use v5.40;
-use lib '../lib', '../../Algorithm-Kademlia/lib';
+use lib '../lib';
 use Net::BitTorrent::DHT;
 use Net::BitTorrent::DHT::Security;
 $|++;
@@ -12,17 +12,17 @@ my $info_hash     = pack( 'H*', $info_hash_hex );
 my $sec = Net::BitTorrent::DHT::Security->new();
 my $id  = $sec->generate_node_id('127.0.0.1');
 $ENV{DEBUG} //= 1;
-my $dht = Net::BitTorrent::DHT->new( node_id_bin => $id, port => 6881 + int( rand(100) ), debug => 0, bep42 => 0 );
+my $dht = Net::BitTorrent::DHT->new( node_id_bin => $id, port => 6881 + int( rand(100) ), bep42 => 0 );
 say '[DEMO] Seeking peers for hash: ' . $info_hash_hex;
 $dht->bootstrap();
 
-# The "Frontier": nodes close to target that we haven't queried yet
+# The 'Frontier': nodes close to target that we haven't queried yet
 my %candidates;
 my %seen_peers;
 my $timer = time;
 while (1) {
 
-    # 1. Process incoming packets (Non-blocking)
+    # Process incoming packets (Non-blocking)
     my ( $new_nodes, $new_peers ) = $dht->tick(0.05);
 
     # Process newly discovered nodes
@@ -40,7 +40,7 @@ while (1) {
         }
     }
 
-    # 2. Periodically pump the search
+    # Periodically pump the search
     if ( time - $timer > 2 ) {
 
         # Merge routing table nodes into our search frontier

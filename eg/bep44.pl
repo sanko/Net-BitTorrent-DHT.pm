@@ -32,41 +32,41 @@ sub pump {
     }
     return @client_results;
 }
-say "[INFO] Storage Node on 6881, Client Node on 6882";
+say '[INFO] Storage Node on 6881, Client Node on 6882';
 
 # Step 1: Get Token
-say "\n[DEMO] Step 1: Requesting token...";
-$client->get_peers( sha1("dummy"), '127.0.0.1', 6881 );
+say '[DEMO] Step 1: Requesting token...';
+$client->get_peers( sha1('dummy'), '127.0.0.1', 6881 );
 my ($res) = pump(1.0);
-my $token = $res->{token} or die "[ERROR] No token received";
-say "[INFO] Token: " . unpack( "H*", $token );
+my $token = $res->{token} or die '[ERROR] No token received';
+say '[INFO] Token: ' . unpack( 'H*', $token );
 
 # Step 2: Immutable Put
 my $val    = 'BEP 44 is cool';
 my $target = sha1($val);
-say "\n[DEMO] Step 2: Storing immutable data...";
+say '[DEMO] Step 2: Storing immutable data...';
 $client->put_remote( { v => $val, token => $token }, '127.0.0.1', 6881 );
 pump(0.2);    # Let storage node process it
 
 # Step 3: Immutable Get
-say "\n[DEMO] Step 3: Retrieving immutable data...";
+say '[DEMO] Step 3: Retrieving immutable data...';
 $client->get_remote( $target, '127.0.0.1', 6881 );
 ($res) = pump(1.0);
 if ( $res && $res->{v} eq $val ) {
-    say "[SUCCESS] Retrieved: '$res->{v}'";
+    say '[SUCCESS] Retrieved: ' . $res->{v};
 }
 else {
-    say "[ERROR] Retrieval failed";
+    say '[ERROR] Retrieval failed';
 }
 
 # Step 4: Mutable (if possible)
 if ( eval { require Crypt::PK::Ed25519; 1 } ) {
-    say "\n[DEMO] Step 4: Mutable data...";
+    say '[DEMO] Step 4: Mutable data...';
     my $pk       = Crypt::PK::Ed25519->new()->generate_key();
     my $pub      = $pk->export_key_raw('public');
-    my $m_val    = "Version 1";
+    my $m_val    = 'Version 1';
     my $seq      = 1;
-    my $to_sign  = "seqi" . $seq . "ev" . length($m_val) . ":" . $m_val;
+    my $to_sign  = 'seqi' . $seq . 'ev' . length($m_val) . ':' . $m_val;
     my $sig      = $pk->sign_message($to_sign);
     my $m_target = sha1($pub);
     $client->put_remote( { v => $m_val, k => $pub, seq => $seq, sig => $sig, token => $token }, '127.0.0.1', 6881 );
@@ -75,10 +75,10 @@ if ( eval { require Crypt::PK::Ed25519; 1 } ) {
     ($res) = pump(1.0);
 
     if ( $res && $res->{v} eq $m_val ) {
-        say "[SUCCESS] Retrieved mutable: '$res->{v}' (seq: $res->{seq})";
+        say sprintf '[SUCCESS] Retrieved mutable: "%s" (seq: %s)', $res->{v}, $res->{seq};
     }
     else {
-        say "[ERROR] Mutable retrieval failed";
+        say '[ERROR] Mutable retrieval failed';
     }
 }
-say "\n[INFO] Demo complete.";
+say '[INFO] Demo complete.';

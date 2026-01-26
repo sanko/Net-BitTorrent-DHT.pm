@@ -19,7 +19,7 @@ local *Net::BitTorrent::DHT::_send_raw = sub {
 };
 
 #~ use warnings 'redefine';
-subtest 'Immutable Data' => sub {
+subtest 'Immutable data' => sub {
     my $v      = 'Hello, world!';
     my $target = sha1($v);
     my $token  = $dht->_generate_token('127.0.0.1');
@@ -35,7 +35,7 @@ subtest 'Immutable Data' => sub {
     my $res = bdecode($sent_data);
     is $res->{r}{v}, $v, 'Retrieved correct immutable value';
 };
-subtest 'Mutable Data' => sub {
+subtest 'Mutable data' => sub {
     skip_all 'Cannot enable BEP44. Install Crypt::PK::Ed25519 or Crypt::Perl::Ed25519::PublicKey', 5
         unless eval { require Crypt::PK::Ed25519; 1 } || eval { require Crypt::Perl::Ed25519::PublicKey; 1 };
     my $pk_ed = Crypt::PK::Ed25519->new();
