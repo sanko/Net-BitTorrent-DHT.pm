@@ -32,7 +32,7 @@ my $msg = {
     q => 'find_node',
 
     # Sender must be valid if bep42 is on by default
-    a => { id => $v4_id, target => $id }
+    a => { id => $v4_id, target => $id, want => [qw[n4 n6]] }
 };
 
 # Mock _send_raw to capture response

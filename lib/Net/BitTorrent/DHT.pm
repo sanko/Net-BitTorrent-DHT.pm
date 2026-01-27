@@ -1,14 +1,15 @@
 use v5.40;
 use feature 'class';
 no warnings 'experimental::class';
-
-class Net::BitTorrent::DHT::Peer {
+#
+class Net::BitTorrent::DHT::Peer v2.0.1 {
     field $ip     : param : reader;
     field $port   : param : reader;
     field $family : param : reader;
     method to_string () {"$ip:$port"}
-}
-class Net::BitTorrent::DHT v2.0.0 {
+};
+#
+class Net::BitTorrent::DHT v2.0.1 {
     use Algorithm::Kademlia;
     use Net::BitTorrent::DHT::Security;
     use Net::BitTorrent::Protocol::BEP03::Bencode qw[bencode bdecode];
@@ -27,6 +28,7 @@ class Net::BitTorrent::DHT v2.0.0 {
     field $bep42            : param : reader = 1;
     field $bep33            : param : reader = 1;
     field $bep44            : param : reader = 1;
+    field $bep51            : param : reader = 1;
     field $read_only        : param  = 0;
     field $security         : reader = Net::BitTorrent::DHT::Security->new();
     field $routing_table_v4 : reader = Algorithm::Kademlia::RoutingTable->new( local_id_bin => $node_id_bin, k => 8 );
@@ -47,17 +49,22 @@ class Net::BitTorrent::DHT v2.0.0 {
     ADJUST {
         $socket // die "Could not create UDP socket: $!";
         if ($bep44) {
-            if ( eval { require Crypt::PK::Ed25519; 1 } ) {
+            try {
+                require Crypt::PK::Ed25519;
                 $_ed25519_backend = method( $sig, $msg, $key ) {
                     my $ed = Crypt::PK::Ed25519->new();
                     $ed->import_key_raw( $key, 'public' );
                     $ed->verify_message( $sig, $msg );
                 }
             }
-            elsif ( eval { require Crypt::Perl::Ed25519::PublicKey; 1 } ) {
-                $_ed25519_backend = method( $sig, $msg, $key ) {
-                    Crypt::Perl::Ed25519::PublicKey->new($key)->verify( $msg, $sig )
+            catch ($e) {
+                try {
+                    require Crypt::Perl::Ed25519::PublicKey;
+                    $_ed25519_backend = method( $sig, $msg, $key ) {
+                        Crypt::Perl::Ed25519::PublicKey->new($key)->verify( $msg, $sig )
+                    }
                 }
+                catch ($e2) { }
             }
         }
     }
@@ -164,7 +171,37 @@ class Net::BitTorrent::DHT v2.0.0 {
         $self->_send( { t => 'sp', y => 'q', q => 'scrape_peers', a => { id => $node_id_bin, info_hash => $info_hash } }, $addr, $port );
     }
 
+    method find_peers ($info_hash) {
+        my @learned;
+        push @learned, $routing_table_v4->find_closest($info_hash) if $want_v4;
+        push @learned, $routing_table_v6->find_closest($info_hash) if $want_v6 && $bep32;
+        for my $node (@learned) {
+            $self->get_peers( $info_hash, $node->{data}{ip}, $node->{data}{port} );
+        }
+    }
+
+    method scrape ($info_hash) {
+        return unless $bep33;
+        my @learned;
+        push @learned, $routing_table_v4->find_closest($info_hash) if $want_v4;
+        push @learned, $routing_table_v6->find_closest($info_hash) if $want_v6 && $bep32;
+        for my $node (@learned) {
+            $self->scrape_peers_remote( $info_hash, $node->{data}{ip}, $node->{data}{port} );
+        }
+    }
+
+    method sample ($target) {
+        return unless $bep51;
+        my @learned;
+        push @learned, $routing_table_v4->find_closest($target) if $want_v4;
+        push @learned, $routing_table_v6->find_closest($target) if $want_v6 && $bep32;
+        for my $node (@learned) {
+            $self->sample_infohashes_remote( $target, $node->{data}{ip}, $node->{data}{port} );
+        }
+    }
+
     method sample_infohashes_remote ( $target, $addr, $port ) {
+        return unless $bep51;
         $self->_send( { t => 'si', y => 'q', q => 'sample_infohashes', a => { id => $node_id_bin, target => $target } }, $addr, $port );
     }
 
@@ -177,24 +214,25 @@ class Net::BitTorrent::DHT v2.0.0 {
     method handle_incoming () {
         my $sender = $socket->recv( my $data, 4096 );
         return ( [], [], undef ) unless defined $data && length $data;
-        my $msg = eval { bdecode($data) };
-        return ( [], [], undef ) if $@ || ref($msg) ne 'HASH';
+        my $msg;
+        try { $msg = bdecode($data) }
+        catch ($e) { return ( [], [], undef ) }
+        return ( [], [], undef ) if ref($msg) ne 'HASH';
         my ( $port, $ip ) = $self->_unpack_address($sender);
         return ( [], [], undef ) unless $ip;
+
         if ( ( $msg->{y} // '' ) eq 'q' ) {
             my $node = $self->_handle_query( $msg, $sender, $ip, $port );
-
-            # Return flat format
-            return ( $node ? [$node] : [], [], undef );
+            return ( $node ? [$node] : [], [], undef );    # Return flat format
         }
-        elsif ( $msg->{y} eq 'r' ) {
-            return $self->_handle_response( $msg, $sender, $ip, $port );
-        }
+        return $self->_handle_response( $msg, $sender, $ip, $port ) if $msg->{y} eq 'r';
         return ( [], [], undef );
     }
 
     method _unpack_address ($sockaddr) {
-        my $family = eval { sockaddr_family($sockaddr) } // return ();
+        my $family;
+        try { $family = sockaddr_family($sockaddr) }
+        catch ($e) { return () }
         if ( $family == AF_INET ) {
             my ( $port, $ip_bin ) = unpack_sockaddr_in($sockaddr);
             return ( $port, inet_ntoa($ip_bin) );
@@ -220,14 +258,24 @@ class Net::BitTorrent::DHT v2.0.0 {
         }
         my $res = { t => $msg->{t}, y => 'r', r => { id => $node_id_bin } };
         $res->{v} = $v if defined $v;
+        if ( my $ip_bin = ( $ip =~ /:/ ) ? inet_pton( AF_INET6, $ip ) : inet_aton($ip) ) {
+            $res->{ip} = $ip_bin;
+        }
+        my $w = $a->{want} // [];
+        $w = [$w] unless ref $w;
+        my %want = map { $_ => 1 } @$w;
+        if ( !@$w ) {    # Default: same family as query
+            if   ( $ip =~ /:/ ) { $want{n6} = 1 }
+            else                { $want{n4} = 1 }
+        }
         if    ( $q eq 'ping' ) { }
         elsif ( $q eq 'find_node' ) {
             my @closest;
-            push @closest, $routing_table_v4->find_closest( $a->{target} ) if $want_v4;
-            push @closest, $routing_table_v6->find_closest( $a->{target} ) if $want_v6 && $bep32;
+            push @closest, $routing_table_v4->find_closest( $a->{target} ) if $want_v4 && $want{n4};
+            push @closest, $routing_table_v6->find_closest( $a->{target} ) if $want_v6 && $bep32 && $want{n6};
             my ( $v4, $v6 ) = $self->_pack_nodes( \@closest );
-            $res->{r}{nodes}  = $v4 if $v4 && $want_v4;
-            $res->{r}{nodes6} = $v6 if $v6 && $want_v6 && $bep32;
+            $res->{r}{nodes}  = $v4 if $v4 && $want_v4 && $want{n4};
+            $res->{r}{nodes6} = $v6 if $v6 && $want_v6 && $bep32 && $want{n6};
         }
         elsif ( $q eq 'get_peers' ) {
             my $info_hash = $a->{info_hash};
@@ -239,11 +287,11 @@ class Net::BitTorrent::DHT v2.0.0 {
             }
             else {
                 my @closest;
-                push @closest, $routing_table_v4->find_closest($info_hash) if $want_v4;
-                push @closest, $routing_table_v6->find_closest($info_hash) if $want_v6 && $bep32;
+                push @closest, $routing_table_v4->find_closest($info_hash) if $want_v4 && $want{n4};
+                push @closest, $routing_table_v6->find_closest($info_hash) if $want_v6 && $bep32 && $want{n6};
                 my ( $v4, $v6 ) = $self->_pack_nodes( \@closest );
-                $res->{r}{nodes}  = $v4 if $v4 && $want_v4;
-                $res->{r}{nodes6} = $v6 if $v6 && $want_v6 && $bep32;
+                $res->{r}{nodes}  = $v4 if $v4 && $want_v4 && $want{n4};
+                $res->{r}{nodes6} = $v6 if $v6 && $want_v6 && $bep32 && $want{n6};
             }
         }
         elsif ( $q eq 'announce_peer' ) {
@@ -328,23 +376,25 @@ class Net::BitTorrent::DHT v2.0.0 {
             }
         }
         elsif ( $q eq 'sample_infohashes' ) {
-            my $target   = $a->{target};
-            my %entries  = $peer_storage->entries;
-            my @all_keys = keys %entries;
-            my $num      = scalar @all_keys;
+            if ($bep51) {
+                my $target   = $a->{target};
+                my %entries  = $peer_storage->entries;
+                my @all_keys = keys %entries;
+                my $num      = scalar @all_keys;
 
-            # BEP 51: return up to 20 samples closest to target
-            my @sorted  = sort { ( $a^.$target ) cmp( $b^.$target ) } @all_keys;
-            my @samples = splice( @sorted, 0, 20 );
-            $res->{r}{samples}  = join( '', @samples );
-            $res->{r}{num}      = $num;
-            $res->{r}{interval} = 21600;                  # 6 hours default
-            my @closest;
-            push @closest, $routing_table_v4->find_closest($target) if $want_v4;
-            push @closest, $routing_table_v6->find_closest($target) if $want_v6 && $bep32;
-            my ( $v4, $v6 ) = $self->_pack_nodes( \@closest );
-            $res->{r}{nodes}  = $v4 if $v4 && $want_v4;
-            $res->{r}{nodes6} = $v6 if $v6 && $want_v6 && $bep32;
+                # BEP 51: return up to 20 samples closest to target
+                my @sorted  = sort { ( $a^.$target ) cmp( $b^.$target ) } @all_keys;
+                my @samples = splice( @sorted, 0, 20 );
+                $res->{r}{samples}  = join( '', @samples );
+                $res->{r}{num}      = $num;
+                $res->{r}{interval} = 21600;                  # 6 hours default
+                my @closest;
+                push @closest, $routing_table_v4->find_closest($target) if $want_v4;
+                push @closest, $routing_table_v6->find_closest($target) if $want_v6 && $bep32;
+                my ( $v4, $v6 ) = $self->_pack_nodes( \@closest );
+                $res->{r}{nodes}  = $v4 if $v4 && $want_v4;
+                $res->{r}{nodes6} = $v6 if $v6 && $want_v6 && $bep32;
+            }
         }
         $self->_send_raw( bencode($res), $sender );
         return { id => $id, ip => $ip, port => $port };

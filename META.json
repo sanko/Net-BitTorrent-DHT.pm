@@ -55,6 +55,7 @@
       },
       "runtime" : {
          "recommends" : {
+            "Crypt::Perl::Ed25519::PublicKey" : "0",
             "IO::Async" : "0"
          },
          "requires" : {
@@ -75,13 +76,15 @@
    "provides" : {
       "Net::BitTorrent::DHT" : {
          "file" : "lib/Net/BitTorrent/DHT.pm",
-         "version" : "v2.0.0"
+         "version" : "v2.0.1"
       },
       "Net::BitTorrent::DHT::Peer" : {
-         "file" : "lib/Net/BitTorrent/DHT.pm"
+         "file" : "lib/Net/BitTorrent/DHT.pm",
+         "version" : "v2.0.1"
       },
       "Net::BitTorrent::DHT::Security" : {
-         "file" : "lib/Net/BitTorrent/DHT/Security.pm"
+         "file" : "lib/Net/BitTorrent/DHT/Security.pm",
+         "version" : "v2.0.1"
       }
    },
    "release_status" : "stable",
@@ -99,7 +102,7 @@
          "web" : "https://github.com/sanko/Net-BitTorrent-DHT.pm"
       }
    },
-   "version" : "v2.0.0",
+   "version" : "v2.0.1",
    "x_help_wanted" : [
       "Tester",
       "Documenter"

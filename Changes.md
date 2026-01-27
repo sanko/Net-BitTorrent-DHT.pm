@@ -2,6 +2,19 @@
 
 All notable changes to Net::BitTorrent::DHT will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Client Identification support (the 'v' key) via the `v` constructor parameter.
+- Support for the 'ip' field in responses (BEP 5), allowing remote nodes to discover their external IP.
+- Support for the 'want' key in queries (BEP 32) to return specific node families.
+- BEP 51 exposure with new `find_peers()`, `scrape()`, and `sample()` methods.
+
+### Changed
+
+- The `sample_infohashes` feature (BEP 51) can now be toggled via the `bep51` parameter.
+
 ## [v2.0.0] - 2026-01-26
 
 This is a total rewrite. I was breaking apart the Kademlia stuff into smaller pieces for a larger, non-BitTorrent related project so I spent a day on this...
@@ -42,7 +55,8 @@ This is a total rewrite. I was breaking apart the Kademlia stuff into smaller pi
 
 - original version (broken from unstable Net::BitTorrent dist)
 
-[Unreleased]: https://github.com/sanko/Net-BitTorrent-DHT.pm/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/sanko/Net-BitTorrent-DHT.pm/compare/v2.0.1...HEAD
+[v2.0.1]: https://github.com/sanko/Net-BitTorrent-DHT.pm/compare/v2.0.0...v2.0.1
 [v2.0.0]: https://github.com/sanko/Net-BitTorrent-DHT.pm/compare/v1.0.3...v2.0.0
 [v1.0.3]: https://github.com/sanko/Net-BitTorrent-DHT.pm/compare/v1.0.2...v1.0.3
 [v1.0.2]: https://github.com/sanko/Net-BitTorrent-DHT.pm/compare/v1.0.1...v1.0.2

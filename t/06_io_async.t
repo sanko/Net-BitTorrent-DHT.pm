@@ -3,7 +3,13 @@ use lib 'lib', '../lib';
 use Test2::V0;
 use Net::BitTorrent::DHT;
 #
-unless ( eval { require IO::Async::Loop; require IO::Async::Handle; 1 } ) {
+my $has_io_async;
+try {
+    require IO::Async::Loop;
+    require IO::Async::Handle;
+    $has_io_async = 1;
+}
+catch ($e) {
     skip_all 'IO::Async not installed';
 }
 #

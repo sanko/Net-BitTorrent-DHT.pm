@@ -91,6 +91,10 @@ my $dht = Net::BitTorrent::DHT->new( port => 8999 );
 
     Note: Only supports immutable data unless dependencies are met.
 
+- `bep51`
+
+    Boolean. Enable BEP 51 (Infohash Indexing). Defaults to `1`.
+
 - `read_only`
 
     Boolean. Enable BEP 43 (Read-only mode). Defaults to `0`.
@@ -147,6 +151,33 @@ Queries a node for peers associated with an infohash. The primary method for pee
 
 ```
 $dht->get_peers( $info_hash, '1.2.3.4', 6881 );
+```
+
+## `find_peers( $info_hash )`
+
+Performs a high-level iterative search for peers associated with an infohash. It queries the nodes closest to the
+infohash in the local routing table (both IPv4 and IPv6 if enabled).
+
+```
+$dht->find_peers( $info_hash );
+```
+
+## `scrape( $info_hash )`
+
+Performs a high-level iterative scrape (BEP 33) for an infohash. It queries the nodes closest to the infohash for swarm
+statistics (seeders and leechers).
+
+```
+$dht->scrape( $info_hash );
+```
+
+## `sample( $target_id )`
+
+Performs a high-level iterative sampling (BEP 51) starting from a target ID. It queries the closest nodes for random
+samples of infohashes they are currently storing.
+
+```
+$dht->sample( $target_id );
 ```
 
 ## `announce_peer( $info_hash, $token, $implied_port, $addr, $port, [$seed] )`

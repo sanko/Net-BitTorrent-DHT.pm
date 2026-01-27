@@ -36,17 +36,29 @@ subtest 'Immutable data' => sub {
     is $res->{r}{v}, $v, 'Retrieved correct immutable value';
 };
 subtest 'Mutable data' => sub {
-    skip_all 'Cannot enable BEP44. Install Crypt::PK::Ed25519 or Crypt::Perl::Ed25519::PublicKey', 5
-        unless eval { require Crypt::PK::Ed25519; 1 } || eval { require Crypt::Perl::Ed25519::PublicKey; 1 };
-    my $pk_ed = Crypt::PK::Ed25519->new();
-    $pk_ed->generate_key();
-    my $pub_key  = $pk_ed->export_key_raw('public');
-    my $priv_key = $pk_ed->export_key_raw('private');
-    my $v        = 'Mutable data';
-    my $seq      = 1;
-    my $salt     = 'my salt';
-    my $target   = sha1( $pub_key . $salt );
-    my $token    = $dht->_generate_token('127.0.0.1');
+    my $backend;
+    try { require Crypt::PK::Ed25519; $backend = 'Crypt::PK::Ed25519' }
+    catch ($e) {
+        try { require Crypt::Perl::Ed25519::PublicKey; $backend = 'Crypt::Perl::Ed25519::PublicKey' }
+        catch ($e2) { }
+    }
+    skip_all 'Cannot enable BEP44. Install Crypt::PK::Ed25519 or Crypt::Perl::Ed25519::PublicKey', 5 unless $backend;
+    my ( $pub_key, $v, $seq, $salt, $target, $pk_ed );
+    if ( $backend eq 'Crypt::PK::Ed25519' ) {
+        $pk_ed = Crypt::PK::Ed25519->new();
+        $pk_ed->generate_key();
+        $pub_key = $pk_ed->export_key_raw('public');
+    }
+    else {
+        # Crypt::Perl based testing would go here if needed,
+        # but for now we'll focus on making it not crash.
+        skip_all 'Test currently requires Crypt::PK::Ed25519 for key generation' unless $backend eq 'Crypt::PK::Ed25519';
+    }
+    $v      = 'Mutable data';
+    $seq    = 1;
+    $salt   = 'my salt';
+    $target = sha1( $pub_key . $salt );
+    my $token = $dht->_generate_token('127.0.0.1');
 
     # Prepare signature
     # to_sign: salt<len>:<salt>seqi<seq>ev<len>:<v>

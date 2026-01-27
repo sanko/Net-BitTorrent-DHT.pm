@@ -60,7 +60,8 @@ else {
 }
 
 # Step 4: Mutable (if possible)
-if ( eval { require Crypt::PK::Ed25519; 1 } ) {
+try {
+    require Crypt::PK::Ed25519;
     say '[DEMO] Step 4: Mutable data...';
     my $pk       = Crypt::PK::Ed25519->new()->generate_key();
     my $pub      = $pk->export_key_raw('public');
@@ -81,4 +82,5 @@ if ( eval { require Crypt::PK::Ed25519; 1 } ) {
         say '[ERROR] Mutable retrieval failed';
     }
 }
+catch ($e) { }
 say '[INFO] Demo complete.';
