@@ -16,7 +16,7 @@ sub _init_table {
 #
 _init_table();
 #
-class Net::BitTorrent::DHT::Security v2.0.2 {
+class Net::BitTorrent::DHT::Security v2.0.3 {
     use Socket qw(inet_aton inet_pton AF_INET AF_INET6);
 
     method _crc32c ($data) {

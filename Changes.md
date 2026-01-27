@@ -2,6 +2,12 @@
 
 All notable changes to Net::BitTorrent::DHT will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- Expose readers for `want_v4` and `want_v6`.
+
 ## [v2.0.2] - 2026-01-27
 
 ### Fixed

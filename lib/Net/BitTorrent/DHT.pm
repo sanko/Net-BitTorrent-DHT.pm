@@ -2,14 +2,14 @@ use v5.40;
 use feature 'class';
 no warnings 'experimental::class';
 #
-class Net::BitTorrent::DHT::Peer v2.0.2 {
+class Net::BitTorrent::DHT::Peer v2.0.3 {
     field $ip     : param : reader;
     field $port   : param : reader;
     field $family : param : reader;
     method to_string () {"$ip:$port"}
 };
 #
-class Net::BitTorrent::DHT v2.0.2 {
+class Net::BitTorrent::DHT v2.0.3 {
     use Algorithm::Kademlia;
     use Net::BitTorrent::DHT::Security;
     use Net::BitTorrent::Protocol::BEP03::Bencode qw[bencode bdecode];
@@ -22,8 +22,8 @@ class Net::BitTorrent::DHT v2.0.2 {
     field $node_id_bin : param : reader;
     field $port             : param : reader = 6881;
     field $address          : param = undef;
-    field $want_v4          : param = 1;
-    field $want_v6          : param = 1;
+    field $want_v4          : param : reader = 1;
+    field $want_v6          : param : reader = 1;
     field $bep32            : param : reader = 1;
     field $bep42            : param : reader = 1;
     field $bep33            : param : reader = 1;
