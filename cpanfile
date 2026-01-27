@@ -1,10 +1,11 @@
 requires 'Algorithm::Kademlia';
-requires 'Crypt::Perl::Ed25519::PublicKey';
+requires 'Crypt::PK::Ed25519';
 requires 'IO::Select';
 requires 'IO::Socket::INET';
 requires 'Net::BitTorrent::Protocol::BEP03::Bencode';
 requires 'Socket';
 requires 'perl', 'v5.42.0';
+recommends 'Crypt::Perl::Ed25519::PublicKey';
 recommends 'IO::Async';
 on configure => sub {
     requires 'Module::Build::Tiny';

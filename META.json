@@ -55,11 +55,12 @@
       },
       "runtime" : {
          "recommends" : {
+            "Crypt::Perl::Ed25519::PublicKey" : "0",
             "IO::Async" : "0"
          },
          "requires" : {
             "Algorithm::Kademlia" : "0",
-            "Crypt::Perl::Ed25519::PublicKey" : "0",
+            "Crypt::PK::Ed25519" : "0",
             "IO::Select" : "0",
             "IO::Socket::INET" : "0",
             "Net::BitTorrent::Protocol::BEP03::Bencode" : "0",

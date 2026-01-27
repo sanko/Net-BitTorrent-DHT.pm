@@ -39,7 +39,11 @@ subtest 'Mutable data' => sub {
     my $backend;
     try { require Crypt::PK::Ed25519; $backend = 'Crypt::PK::Ed25519' }
     catch ($e) {
-        try { require Crypt::Perl::Ed25519::PublicKey; $backend = 'Crypt::Perl::Ed25519::PublicKey' }
+        try {
+            require Crypt::Perl::Ed25519::PrivateKey;
+            require Crypt::Perl::Ed25519::PublicKey;
+            $backend = 'Crypt::Perl';
+        }
         catch ($e2) { }
     }
     skip_all 'Cannot enable BEP44. Install Crypt::PK::Ed25519 or Crypt::Perl::Ed25519::PublicKey', 5 unless $backend;
@@ -50,9 +54,8 @@ subtest 'Mutable data' => sub {
         $pub_key = $pk_ed->export_key_raw('public');
     }
     else {
-        # Crypt::Perl based testing would go here if needed,
-        # but for now we'll focus on making it not crash.
-        skip_all 'Test currently requires Crypt::PK::Ed25519 for key generation' unless $backend eq 'Crypt::PK::Ed25519';
+        $pk_ed   = Crypt::Perl::Ed25519::PrivateKey->new();
+        $pub_key = $pk_ed->get_public_key->encode;
     }
     $v      = 'Mutable data';
     $seq    = 1;
@@ -63,7 +66,7 @@ subtest 'Mutable data' => sub {
     # Prepare signature
     # to_sign: salt<len>:<salt>seqi<seq>ev<len>:<v>
     my $to_sign = 'salt' . length($salt) . ':' . $salt . 'seqi' . $seq . 'ev' . length($v) . ':' . $v;
-    my $sig     = $pk_ed->sign_message($to_sign);
+    my $sig     = ( $backend eq 'Crypt::PK::Ed25519' ) ? $pk_ed->sign_message($to_sign) : $pk_ed->sign($to_sign);
 
     # Store mutable data
     $dht->_handle_query(
@@ -90,7 +93,7 @@ subtest 'Mutable data' => sub {
     my $new_v       = 'Updated data';
     my $new_seq     = 2;
     my $new_to_sign = 'salt' . length($salt) . ':' . $salt . 'seqi' . $new_seq . 'ev' . length($new_v) . ':' . $new_v;
-    my $new_sig     = $pk_ed->sign_message($new_to_sign);
+    my $new_sig     = ( $backend eq 'Crypt::PK::Ed25519' ) ? $pk_ed->sign_message($new_to_sign) : $pk_ed->sign($new_to_sign);
 
     # Update with invalid CAS
     $dht->_handle_query(
