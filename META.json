@@ -60,7 +60,6 @@
          },
          "requires" : {
             "Algorithm::Kademlia" : "0",
-            "Crypt::PK::Ed25519" : "0",
             "IO::Select" : "0",
             "IO::Socket::INET" : "0",
             "Net::BitTorrent::Protocol::BEP03::Bencode" : "0",

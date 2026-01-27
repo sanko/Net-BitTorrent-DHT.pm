@@ -1,5 +1,4 @@
 requires 'Algorithm::Kademlia';
-requires 'Crypt::PK::Ed25519';
 requires 'IO::Select';
 requires 'IO::Socket::INET';
 requires 'Net::BitTorrent::Protocol::BEP03::Bencode';
