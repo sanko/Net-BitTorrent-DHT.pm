@@ -1,5 +1,6 @@
 use v5.40;
 use experimental 'class';
+#
 my @CRC32C_TABLE;
 
 sub _init_table {
@@ -12,8 +13,10 @@ sub _init_table {
         $CRC32C_TABLE[$i] = $res & 0xFFFFFFFF;
     }
 }
+#
 _init_table();
-class Net::BitTorrent::DHT::Security v2.0.1 {
+#
+class Net::BitTorrent::DHT::Security v2.0.2 {
     use Socket qw(inet_aton inet_pton AF_INET AF_INET6);
 
     method _crc32c ($data) {
@@ -72,4 +75,5 @@ class Net::BitTorrent::DHT::Security v2.0.1 {
         return 0 if ( $id[2] & 0xF8 ) != ( $exp[2] & 0xF8 );
         return 1;
     }
-} 1;
+};
+1;

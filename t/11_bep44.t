@@ -55,7 +55,7 @@ subtest 'Mutable data' => sub {
     }
     else {
         $pk_ed   = Crypt::Perl::Ed25519::PrivateKey->new();
-        $pub_key = $pk_ed->get_public_key->encode;
+        $pub_key = $pk_ed->get_public;
     }
     $v      = 'Mutable data';
     $seq    = 1;
@@ -148,6 +148,103 @@ subtest 'Mutable data' => sub {
         'dummy', '1.2.3.4', 4321 );
     $res = bdecode($sent_data);
     is $res->{r}{v}, $new_v, 'Value updated correctly with valid CAS';
+    subtest 'Invalid signature/key' => sub {
+        my $bad_v       = 'Malicious update';
+        my $bad_seq     = 100;
+        my $bad_to_sign = 'salt' . length($salt) . ':' . $salt . 'seqi' . $bad_seq . 'ev' . length($bad_v) . ':' . $bad_v;
+
+        # Generate a DIFFERENT key pair
+        my ( $other_pk, $other_pub );
+        if ( $backend eq 'Crypt::PK::Ed25519' ) {
+            $other_pk = Crypt::PK::Ed25519->new();
+            $other_pk->generate_key();
+            $other_pub = $other_pk->export_key_raw('public');
+        }
+        else {
+            $other_pk  = Crypt::Perl::Ed25519::PrivateKey->new();
+            $other_pub = $other_pk->get_public_key;
+        }
+
+        # Scenario 1: Correct signature but for a DIFFERENT key targeting the original salt
+        # In this implementation, the target is derived from the key provided in the query.
+        # So providing a different key just targets a different slot.
+        my $other_sig = ( $backend eq 'Crypt::PK::Ed25519' ) ? $other_pk->sign_message($bad_to_sign) : $other_pk->sign($bad_to_sign);
+        $dht->_handle_query(
+            {   t => 'pt_bad1',
+                y => 'q',
+                q => 'put',
+                a => {
+                    id    => $sec->generate_node_id('127.0.0.1'),
+                    v     => $bad_v,
+                    k     => $other_pub,
+                    seq   => $bad_seq,
+                    salt  => $salt,
+                    sig   => $other_sig,
+                    token => $token
+                }
+            },
+            'dummy',
+            '127.0.0.1',
+            1234
+        );
+
+        # Verify ORIGINAL target is unchanged
+        $dht->_handle_query( { t => 'gt_check1', y => 'q', q => 'get', a => { id => $sec->generate_node_id('1.2.3.4'), target => $target } },
+            'dummy', '1.2.3.4', 4321 );
+        $res = bdecode($sent_data);
+        is $res->{r}{v}, $new_v, 'Original target remains unchanged when different key is used';
+
+        # Scenario 2: Correct key but INVALID signature
+        my $fake_sig = "A" x 64;
+        $dht->_handle_query(
+            {   t => 'pt_bad2',
+                y => 'q',
+                q => 'put',
+                a => {
+                    id    => $sec->generate_node_id('127.0.0.1'),
+                    v     => $bad_v,
+                    k     => $pub_key,
+                    seq   => $bad_seq,
+                    salt  => $salt,
+                    sig   => $fake_sig,
+                    token => $token
+                }
+            },
+            'dummy',
+            '127.0.0.1',
+            1234
+        );
+
+        # Verify ORIGINAL target is still unchanged
+        $dht->_handle_query( { t => 'gt_check2', y => 'q', q => 'get', a => { id => $sec->generate_node_id('1.2.3.4'), target => $target } },
+            'dummy', '1.2.3.4', 4321 );
+        $res = bdecode($sent_data);
+        is $res->{r}{v}, $new_v, 'Original target remains unchanged when invalid signature is provided';
+        subtest 'Blacklisting' => sub {
+            my $malicious_ip    = '1.2.3.5';
+            my $malicious_id    = $sec->generate_node_id($malicious_ip);
+            my $malicious_token = $dht->_generate_token($malicious_ip);
+
+            # Trigger blacklist with bad signature
+            $dht->_handle_query(
+                {   t => 'pt_mal',
+                    y => 'q',
+                    q => 'put',
+                    a => { id => $malicious_id, v => 'bad', k => $pub_key, seq => 999, sig => 'invalid', token => $malicious_token }
+                },
+                'dummy',
+                $malicious_ip,
+                1234
+            );
+
+            # Subsequent VALID query from same IP should be ignored (return undef)
+            $sent_data = 'no_change';
+            my $result = $dht->_handle_query( { t => 'ping_after_blacklist', y => 'q', q => 'ping', a => { id => $malicious_id } },
+                'dummy', $malicious_ip, 1234 );
+            is $result,    undef,       'Subsequent query from malicious IP is ignored';
+            is $sent_data, 'no_change', 'No response packet sent to blacklisted IP';
+        };
+    };
 };
 #
 done_testing;

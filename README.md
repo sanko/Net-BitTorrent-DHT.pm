@@ -331,6 +331,13 @@ In order to handle mutable data, [Crypt::PK::Ed25519](https://metacpan.org/pod/C
 
 Adds the `sample_infohashes` RPC to allow indexing of the DHT's content. Supported and enabled by default.
 
+# SECURITY
+
+This module aims to protect the node and the network with these following features:
+
+- BEP 42 (Node ID Validation) mitigates Sybil attacks and routing table poisoning.
+- Peers that attempt to update mutable data with an invalid signature (BEP 44) are automatically blacklisted. All subsequent queries and responses from their IP address will be ignored for the duration of the session.
+
 # SEE ALSO
 
 [Algorithm::Kademlia](https://metacpan.org/pod/Algorithm%3A%3AKademlia), [Net::BitTorrent::Protocol::BEP03::Bencode](https://metacpan.org/pod/Net%3A%3ABitTorrent%3A%3AProtocol%3A%3ABEP03%3A%3ABencode)

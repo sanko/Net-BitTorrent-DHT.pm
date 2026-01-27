@@ -46,7 +46,7 @@ Creates a new DHT node instance. All arguments are optional.
 
     my $dht = Net::BitTorrent::DHT->new( port => 8999 );
 
-=over 4
+=over
 
 =item C<node_id_bin>
 
@@ -304,6 +304,18 @@ In order to handle mutable data, L<Crypt::PK::Ed25519> or L<Crypt::Perl::Ed25519
 =head2 BEP 51: Infohash Indexing
 
 Adds the C<sample_infohashes> RPC to allow indexing of the DHT's content. Supported and enabled by default.
+
+=head1 SECURITY
+
+This module aims to protect the node and the network with these following features:
+
+=over
+
+=item * BEP 42 (Node ID Validation) mitigates Sybil attacks and routing table poisoning.
+
+=item * Peers that attempt to update mutable data with an invalid signature (BEP 44) are automatically blacklisted. All subsequent queries and responses from their IP address will be ignored for the duration of the session.
+
+=back
 
 =head1 SEE ALSO
 

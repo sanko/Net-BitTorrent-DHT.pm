@@ -2,14 +2,14 @@ use v5.40;
 use feature 'class';
 no warnings 'experimental::class';
 #
-class Net::BitTorrent::DHT::Peer v2.0.1 {
+class Net::BitTorrent::DHT::Peer v2.0.2 {
     field $ip     : param : reader;
     field $port   : param : reader;
     field $family : param : reader;
     method to_string () {"$ip:$port"}
 };
 #
-class Net::BitTorrent::DHT v2.0.1 {
+class Net::BitTorrent::DHT v2.0.2 {
     use Algorithm::Kademlia;
     use Net::BitTorrent::DHT::Security;
     use Net::BitTorrent::Protocol::BEP03::Bencode qw[bencode bdecode];
@@ -45,6 +45,7 @@ class Net::BitTorrent::DHT v2.0.1 {
     field $v : param : reader //= ();
     field $_ed25519_backend = ();
     field $running          = 0;
+    field %_blacklist;
     #
     ADJUST {
         $socket // die "Could not create UDP socket: $!";
@@ -53,15 +54,23 @@ class Net::BitTorrent::DHT v2.0.1 {
                 require Crypt::PK::Ed25519;
                 $_ed25519_backend = method( $sig, $msg, $key ) {
                     my $ed = Crypt::PK::Ed25519->new();
-                    $ed->import_key_raw( $key, 'public' );
-                    $ed->verify_message( $sig, $msg );
+                    try {
+                        $ed->import_key_raw( $key, 'public' )->verify_message( $sig, $msg );
+                    }
+                    catch ($e) { return 0; }
                 }
             }
             catch ($e) {
                 try {
                     require Crypt::Perl::Ed25519::PublicKey;
                     $_ed25519_backend = method( $sig, $msg, $key ) {
-                        Crypt::Perl::Ed25519::PublicKey->new($key)->verify( $msg, $sig )
+                        try {
+                            return Crypt::Perl::Ed25519::PublicKey->new($key)->verify( $msg, $sig )
+                        }
+                        catch ($e) {
+                            warn $e;
+                            return 0;
+                        }
                     }
                 }
                 catch ($e2) { }
@@ -245,6 +254,7 @@ class Net::BitTorrent::DHT v2.0.1 {
     }
 
     method _handle_query ( $msg, $sender, $ip, $port ) {
+        return if $_blacklist{$ip};
         my $q  = $msg->{q} // return;
         my $a  = $msg->{a} // return;
         my $id = $a->{id}  // return;
@@ -369,6 +379,12 @@ class Net::BitTorrent::DHT v2.0.1 {
                             }
                         }
                     }
+                    else {
+                        # BEP 44: "If the signature is invalid, the request MUST be rejected."
+                        # Additionally, we blacklist the peer for attempting a malicious update.
+                        $_blacklist{$ip} = time();
+                        return;
+                    }
                 }
                 else {    # Immutable
                     $data_storage->put( $target, { v => $v } );
@@ -401,6 +417,7 @@ class Net::BitTorrent::DHT v2.0.1 {
     }
 
     method _handle_response ( $msg, $sender, $ip, $port ) {
+        return ( [], [], undef ) if $_blacklist{$ip};
         my $r = $msg->{r};
         return ( [], [], undef ) unless $r && $r->{id};
         if ( $bep42 && !$security->validate_node_id( $r->{id}, $ip ) ) {

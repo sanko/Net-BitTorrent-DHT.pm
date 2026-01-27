@@ -2,6 +2,12 @@
 
 All notable changes to Net::BitTorrent::DHT will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- Peers that attempt to update mutable data with an invalid signature (BEP 44) are now automatically blacklisted and ignored for the duration of the session.
+
 ## [v2.0.1] - 2026-01-27
 
 ### Added
