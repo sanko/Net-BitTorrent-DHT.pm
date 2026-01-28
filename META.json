@@ -59,7 +59,7 @@
             "IO::Async" : "0"
          },
          "requires" : {
-            "Algorithm::Kademlia" : "0",
+            "Algorithm::Kademlia" : "v1.0.1",
             "IO::Select" : "0",
             "IO::Socket::INET" : "0",
             "Net::BitTorrent::Protocol::BEP03::Bencode" : "0",
@@ -76,15 +76,15 @@
    "provides" : {
       "Net::BitTorrent::DHT" : {
          "file" : "lib/Net/BitTorrent/DHT.pm",
-         "version" : "v2.0.3"
+         "version" : "v2.0.4"
       },
       "Net::BitTorrent::DHT::Peer" : {
          "file" : "lib/Net/BitTorrent/DHT.pm",
-         "version" : "v2.0.3"
+         "version" : "v2.0.4"
       },
       "Net::BitTorrent::DHT::Security" : {
          "file" : "lib/Net/BitTorrent/DHT/Security.pm",
-         "version" : "v2.0.3"
+         "version" : "v2.0.4"
       }
    },
    "release_status" : "stable",
@@ -102,7 +102,7 @@
          "web" : "https://github.com/sanko/Net-BitTorrent-DHT.pm"
       }
    },
-   "version" : "v2.0.3",
+   "version" : "v2.0.4",
    "x_help_wanted" : [
       "Tester",
       "Documenter"

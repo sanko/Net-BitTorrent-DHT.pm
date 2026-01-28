@@ -1,5 +1,6 @@
 use v5.40;
-use experimental 'class';
+use feature 'class';
+no warnings 'experimental::class';
 #
 my @CRC32C_TABLE;
 
@@ -16,7 +17,7 @@ sub _init_table {
 #
 _init_table();
 #
-class Net::BitTorrent::DHT::Security v2.0.3 {
+class Net::BitTorrent::DHT::Security v2.0.4 {
     use Socket qw(inet_aton inet_pton AF_INET AF_INET6);
 
     method _crc32c ($data) {

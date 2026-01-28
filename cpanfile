@@ -1,4 +1,4 @@
-requires 'Algorithm::Kademlia';
+requires 'Algorithm::Kademlia', 'v1.0.1';
 requires 'IO::Select';
 requires 'IO::Socket::INET';
 requires 'Net::BitTorrent::Protocol::BEP03::Bencode';

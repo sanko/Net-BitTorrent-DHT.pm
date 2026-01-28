@@ -25,11 +25,11 @@ subtest 'Announce Peer Flow' => sub {
     local *Net::BitTorrent::DHT::_send_raw = sub { };
     my $info_hash = pack( 'H*', 'deadbeef' x 5 );
 
-    # 1. Simulate get_peers query to get a token
+    # Simulate get_peers query to get a token
     my $ip    = '127.0.0.1';
     my $token = $node->_generate_token($ip);
 
-    # 2. Simulate announce_peer query
+    # Simulate announce_peer query
     my $msg = {
         t => 'aa',
         y => 'q',
@@ -41,11 +41,11 @@ subtest 'Announce Peer Flow' => sub {
     # _handle_query( $msg, $sender, $ip, $port )
     $node->_handle_query( $msg, undef, $ip, 12345 );
 
-    # 3. Verify peer was stored
+    # Verify peer was stored
     my $peers = $node->peer_storage->get($info_hash);
-    is scalar(@$peers),   1,    'One peer stored for info_hash';
-    is $peers->[0]{ip},   $ip,  'Stored correct IP';
-    is $peers->[0]{port}, 9999, 'Stored correct port';
+    is scalar( @{ $peers->value } ), 1,    'One peer stored for info_hash';
+    is $peers->value->[0]{ip},       $ip,  'Stored correct IP';
+    is $peers->value->[0]{port},     9999, 'Stored correct port';
 };
 #
 done_testing;

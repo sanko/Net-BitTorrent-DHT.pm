@@ -19,7 +19,7 @@ local *Net::BitTorrent::DHT::_send_raw = sub {
 use warnings 'redefine';
 my $info_hash = pack( 'H*', '12' x 20 );
 
-# 1. Test announce_peer with seed flag
+# Test announce_peer with seed flag
 my $token = $dht->_generate_token('127.0.0.1');
 
 # Announce a seeder
@@ -53,10 +53,10 @@ $dht->_handle_query(
     2222
 );
 my $peers = $dht->peer_storage->get($info_hash);
-is scalar(@$peers),                       2, 'Stored 2 peers';
-is scalar( grep { $_->{seed} } @$peers ), 1, 'One is a seeder';
+is scalar( @{ $peers->value } ),                     2, 'Stored 2 peers';
+is scalar( grep { $_->{seed} } @{ $peers->value } ), 1, 'One is a seeder';
 
-# 2. Test scrape_peers query
+# Test scrape_peers query
 $sent_data = undef;
 $dht->_handle_query( { t => 'sp1', y => 'q', q => 'scrape_peers', a => { id => $sec->generate_node_id('1.2.3.4'), info_hash => $info_hash } },
     'dummy', '1.2.3.4', 1234 );
@@ -64,7 +64,7 @@ my $res = bdecode($sent_data);
 is $res->{r}{sn}, 1, 'Scrape response has 1 seeder';
 is $res->{r}{ln}, 1, 'Scrape response has 1 leecher';
 
-# 3. Test scrape_peers response handling
+# Test scrape_peers response handling
 my ( $nodes, $found_peers, $scrape )
     = $dht->_handle_response( { t => 'sp', y => 'r', r => { id => $sec->generate_node_id('5.6.7.8'), sn => 10, ln => 20 } }, 'dummy', '5.6.7.8',
     5678 );

@@ -2,6 +2,18 @@
 
 All notable changes to Net::BitTorrent::DHT will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Support for the `external_ip_detected` event.
+- Automatic `node_id` rotation when a new external IP is detected (requires BEP 42).
+
+### Fixed
+
+- Improved `node_id` rotation logic to update both IPv4 and IPv6 routing tables.
+- Fixed a crash in `_check_external_ip` when receiving full compact addresses (including ports).
+
 ## [v2.0.3] - 2026-01-27
 
 ### Changed
@@ -67,7 +79,8 @@ This is a total rewrite. I was breaking apart the Kademlia stuff into smaller pi
 
 - original version (broken from unstable Net::BitTorrent dist)
 
-[Unreleased]: https://github.com/sanko/Net-BitTorrent-DHT.pm/compare/v2.0.3...HEAD
+[Unreleased]: https://github.com/sanko/Net-BitTorrent-DHT.pm/compare/v2.0.4...HEAD
+[v2.0.4]: https://github.com/sanko/Net-BitTorrent-DHT.pm/compare/v2.0.3...v2.0.4
 [v2.0.3]: https://github.com/sanko/Net-BitTorrent-DHT.pm/compare/v2.0.2...v2.0.3
 [v2.0.2]: https://github.com/sanko/Net-BitTorrent-DHT.pm/compare/v2.0.1...v2.0.2
 [v2.0.1]: https://github.com/sanko/Net-BitTorrent-DHT.pm/compare/v2.0.0...v2.0.1
