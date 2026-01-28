@@ -2,7 +2,7 @@
 
 All notable changes to Net::BitTorrent::DHT will be documented in this file.
 
-## [Unreleased]
+## [v2.0.4] - 2026-01-28
 
 ### Added
 
