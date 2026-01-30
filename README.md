@@ -16,7 +16,7 @@ my $node_id  = $security->generate_node_id('12.34.56.78'); # Use your external I
 my $dht = Net::BitTorrent::DHT->new(
     node_id_bin => $node_id,
     port        => 6881,
-    v           => 'NB01', # Client version
+    v           => 'NB01' # Client version
 );
 
 # Join the network
