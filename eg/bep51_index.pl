@@ -9,33 +9,42 @@ $|++;
 # It queries a node for a sample of the info-hashes it is tracking.
 my $sec = Net::BitTorrent::DHT::Security->new();
 my $id  = $sec->generate_node_id('127.0.0.1');
-my $dht = Net::BitTorrent::DHT->new( node_id_bin => $id, port => 6881 + int( rand(100) ), debug => 1 );
 
-# Populate local storage so we can query ourselves for the demo
-for ( 1 .. 5 ) {
-    $dht->peer_storage->put( sha1("fake torrent $_"), [ { ip => '127.0.0.1', port => 1234 } ] );
+# Setup a "Server" node that has some data
+my $server = Net::BitTorrent::DHT->new( node_id_bin => $id, port => 6881, address => '127.0.0.1' );
+
+# Populate server storage
+$server->peer_storage->put( sha1("fake torrent $_"), [ { ip => '1.2.3.4', port => 1234 } ] ) for 1 .. 25;
+
+# Setup a "Client" node to query the server
+my $client = Net::BitTorrent::DHT->new( node_id_bin => $sec->generate_node_id('127.0.0.1'), port => 6882, address => '127.0.0.1' );
+say '[INFO] Server on 6881, Client on 6882';
+say '[DEMO] Client requesting samples from Server...';
+
+# Send the query
+$client->sample_infohashes_remote( sha1('target'), '127.0.0.1', 6881 );
+
+# Process the exchange
+# Usually you'd do this in an event loop. Here we pump both sockets.
+my $sel   = IO::Select->new( $server->socket, $client->socket );
+my $found = 0;
+my $start = time;
+while ( time - $start < 5 && !$found ) {
+    if ( my @ready = $sel->can_read(0.1) ) {
+        for my $fh (@ready) {
+            if ( $fh == $server->socket ) {
+                $server->handle_incoming();
+            }
+            else {
+                my ( $nodes, $peers, $data ) = $client->handle_incoming();
+                if ( $data && $data->{samples} ) {
+                    say '[SUCCESS] Received ' . scalar( $data->{samples}->@* ) . ' info-hash samples';
+                    say '  First sample: ' . unpack( 'H*', $data->{samples}[0] );
+                    say '  Total tracked by server: ' . $data->{num};
+                    $found = 1;
+                }
+            }
+        }
+    }
 }
-say "[INFO] Starting DHT node on port " . $dht->port . "...";
-say "[INFO] Sending sample_infohashes query to ourselves...";
-
-# In a real scenario, you'd send this to a remote node.
-# Here we use the target ID of the node we're querying or a random one to get a sample.
-my $target = sha1("some target");
-$dht->sample_infohashes_remote( $target, '127.0.0.1', $dht->port );
-
-# Since we're querying ourselves on the same socket, we need to process the packets.
-# handle_incoming will process the query we just sent to ourselves.
-$dht->handle_incoming();
-
-# Now we need to process the response we (theoretically) sent.
-# But since handle_incoming calls _send_raw, and we haven't mocked it to loop back,
-# this demo is mostly showing how to call the method.
-# If we were using a real network and a remote node:
-# my ($nodes, $peers, $data) = $dht->tick(1);
-# if ($data && $data->{samples}) {
-#     say "[DEMO] Received " . scalar($data->{samples}->@*) . " info-hash samples";
-#     for my $s ($data->{samples}->@*) {
-#         say "  - " . unpack("H*", $s);
-#     }
-# }
-say "[INFO] Demo complete. See code for how to handle real responses.";
+say $found? '[INFO] Demo complete.' : '[ERROR] Demo timed out';

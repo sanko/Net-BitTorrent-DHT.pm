@@ -65,8 +65,12 @@ is $res->{r}{sn}, 1, 'Scrape response has 1 seeder';
 is $res->{r}{ln}, 1, 'Scrape response has 1 leecher';
 
 # Test scrape_peers response handling
+$sent_data = undef;
+$dht->scrape_peers_remote( $info_hash, '5.6.7.8', 5678 );
+my $query = bdecode($sent_data);
+my $tid   = $query->{t};
 my ( $nodes, $found_peers, $scrape )
-    = $dht->_handle_response( { t => 'sp', y => 'r', r => { id => $sec->generate_node_id('5.6.7.8'), sn => 10, ln => 20 } }, 'dummy', '5.6.7.8',
+    = $dht->_handle_response( { t => $tid, y => 'r', r => { id => $sec->generate_node_id('5.6.7.8'), sn => 10, ln => 20 } }, 'dummy', '5.6.7.8',
     5678 );
 ok $scrape, 'Handled scrape response';
 is $scrape->{sn}, 10, 'Correct seeder count from response';

@@ -67,7 +67,7 @@ try {
     my $pub      = $pk->export_key_raw('public');
     my $m_val    = 'Version 1';
     my $seq      = 1;
-    my $to_sign  = 'seqi' . $seq . 'ev' . length($m_val) . ':' . $m_val;
+    my $to_sign  = '3:seq' . bencode($seq) . '1:v' . bencode($m_val);
     my $sig      = $pk->sign_message($to_sign);
     my $m_target = sha1($pub);
     $client->put_remote( { v => $m_val, k => $pub, seq => $seq, sig => $sig, token => $token }, '127.0.0.1', 6881 );

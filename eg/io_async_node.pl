@@ -1,4 +1,3 @@
-#!/usr/bin/env perl
 use v5.40;
 use lib 'lib', '../lib';
 use Net::BitTorrent::DHT;
@@ -95,6 +94,6 @@ my $timer = IO::Async::Timer::Periodic->new(
 );
 $timer->start;
 $loop->add($timer);
-say "[ASYNC] DHT Node running on IO::Async. Seeking Debian ISO peers...";
-say "[ASYNC] Press Ctrl+C to stop.";
+say '[ASYNC] DHT Node running on IO::Async. Seeking Debian ISO peers...';
+say '[ASYNC] Press Ctrl+C to stop.';
 $loop->run;

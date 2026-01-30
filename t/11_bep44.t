@@ -64,8 +64,8 @@ subtest 'Mutable data' => sub {
     my $token = $dht->_generate_token('127.0.0.1');
 
     # Prepare signature
-    # to_sign: salt<len>:<salt>seqi<seq>ev<len>:<v>
-    my $to_sign = 'salt' . length($salt) . ':' . $salt . 'seqi' . $seq . 'ev' . length($v) . ':' . $v;
+    # to_sign: 4:salt<bencoded salt>3:seq<bencoded seq>1:v<bencoded v>
+    my $to_sign = "4:salt" . bencode($salt) . "3:seq" . bencode($seq) . "1:v" . bencode($v);
     my $sig     = ( $backend eq 'Crypt::PK::Ed25519' ) ? $pk_ed->sign_message($to_sign) : $pk_ed->sign($to_sign);
 
     # Store mutable data
@@ -92,10 +92,13 @@ subtest 'Mutable data' => sub {
     # Test CAS and Sequence validation
     my $new_v       = 'Updated data';
     my $new_seq     = 2;
-    my $new_to_sign = 'salt' . length($salt) . ':' . $salt . 'seqi' . $new_seq . 'ev' . length($new_v) . ':' . $new_v;
+    my $new_to_sign = "4:salt" . bencode($salt) . "3:seq" . bencode($new_seq) . "1:v" . bencode($new_v);
     my $new_sig     = ( $backend eq 'Crypt::PK::Ed25519' ) ? $pk_ed->sign_message($new_to_sign) : $pk_ed->sign($new_to_sign);
 
-    # Update with invalid CAS
+    # Update with invalid CAS (signature is valid for this CAS, but CAS doesn't match storage)
+    my $bad_cas         = 999;
+    my $bad_cas_to_sign = "3:cas" . bencode($bad_cas) . "4:salt" . bencode($salt) . "3:seq" . bencode($new_seq) . "1:v" . bencode($new_v);
+    my $bad_cas_sig     = ( $backend eq 'Crypt::PK::Ed25519' ) ? $pk_ed->sign_message($bad_cas_to_sign) : $pk_ed->sign($bad_cas_to_sign);
     $dht->_handle_query(
         {   t => 'pt3',
             y => 'q',
@@ -106,9 +109,9 @@ subtest 'Mutable data' => sub {
                 k     => $pub_key,
                 seq   => $new_seq,
                 salt  => $salt,
-                sig   => $new_sig,
+                sig   => $bad_cas_sig,
                 token => $token,
-                cas   => 999                                    # Wrong CAS
+                cas   => $bad_cas                               # Wrong CAS
             }
         },
         'dummy',
@@ -122,7 +125,9 @@ subtest 'Mutable data' => sub {
     $res = bdecode($sent_data);
     is $res->{r}{v}, $v, 'Value not updated due to invalid CAS';
 
-    # Update with valid CAS
+    # Update with valid CAS (must include CAS in signature)
+    my $cas_to_sign = "3:cas" . bencode($seq) . "4:salt" . bencode($salt) . "3:seq" . bencode($new_seq) . "1:v" . bencode($new_v);
+    my $cas_sig     = ( $backend eq 'Crypt::PK::Ed25519' ) ? $pk_ed->sign_message($cas_to_sign) : $pk_ed->sign($cas_to_sign);
     $dht->_handle_query(
         {   t => 'pt4',
             y => 'q',
@@ -133,7 +138,7 @@ subtest 'Mutable data' => sub {
                 k     => $pub_key,
                 seq   => $new_seq,
                 salt  => $salt,
-                sig   => $new_sig,
+                sig   => $cas_sig,
                 token => $token,
                 cas   => $seq                                   # Valid CAS
             }
@@ -151,7 +156,7 @@ subtest 'Mutable data' => sub {
     subtest 'Invalid signature/key' => sub {
         my $bad_v       = 'Malicious update';
         my $bad_seq     = 100;
-        my $bad_to_sign = 'salt' . length($salt) . ':' . $salt . 'seqi' . $bad_seq . 'ev' . length($bad_v) . ':' . $bad_v;
+        my $bad_to_sign = "4:salt" . bencode($salt) . "3:seq" . bencode($bad_seq) . "1:v" . bencode($bad_v);
 
         # Generate a DIFFERENT key pair
         my ( $other_pk, $other_pub );

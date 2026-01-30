@@ -36,7 +36,17 @@ subtest 'Handling sample_infohashes response' => sub {
     my $resp_id = pack( 'H*', '5' x 40 );
     my $sample1 = pack( 'H*', 'c' x 40 );
     my $sample2 = pack( 'H*', 'd' x 40 );
-    my $msg     = { t => 'si', y => 'r', r => { id => $resp_id, samples => $sample1 . $sample2, num => 2, interval => 3600, } };
+
+    # Initiate a query to populate _pending_queries
+    my $sent_data;
+    no warnings 'redefine';
+    local *Net::BitTorrent::DHT::_send_raw = sub {
+        my ( $self, $data, $dest ) = @_;
+        $sent_data = bdecode($data);
+    };
+    $dht->sample_infohashes_remote( pack( 'H*', '6' x 40 ), '127.0.0.3', 9999 );
+    my $tid = $sent_data->{t};
+    my $msg = { t => $tid, y => 'r', r => { id => $resp_id, samples => $sample1 . $sample2, num => 2, interval => 3600, } };
     my ( $nodes, $peers, $data ) = $dht->_handle_response( $msg, undef, '127.0.0.3', 9999 );
     ok( $data, 'Data returned from response handler' );
     is( $data->{id}, $resp_id, 'ID matches' );

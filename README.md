@@ -6,110 +6,126 @@ Net::BitTorrent::DHT - BitTorrent Mainline DHT implementation
 
 ```perl
 use Net::BitTorrent::DHT;
+use Net::BitTorrent::DHT::Security;
 
+# Initialize security and generate a BEP 42 compliant ID
+my $security = Net::BitTorrent::DHT::Security->new();
+my $node_id  = $security->generate_node_id('12.34.56.78'); # Use your external IP
+
+# Create the DHT instance
 my $dht = Net::BitTorrent::DHT->new(
-    node_id_bin => pack('H*', '0123456789abcdef0123456789abcdef01234567'),
+    node_id_bin => $node_id,
     port        => 6881,
-    address     => '0.0.0.0' # Optional: bind to specific address
-    want_v6     => 1
+    v           => 'NB01', # Client version
 );
 
-# Connect to the DHT network
+# Join the network
 $dht->bootstrap();
 
-# Event loop integration
+# Main Loop
 while (1) {
-    # Process incoming packets and timeouts
+    # Process packets with a 100ms timeout
     my ($new_nodes, $found_peers, $data) = $dht->tick(0.1);
 
-    # $found_peers contains Net::BitTorrent::DHT::Peer objects
+    # Handle discovered peers
     for my $peer (@$found_peers) {
-        say "Found peer: " . $peer->to_string;
+        printf "Discovered peer: %s\n", $peer->to_string;
     }
+
+    # Handle BEP 44 / 51 data
+    if ($data) {
+         # ... handle scrape, get, or sample results
+    }
+
+    # Periodic tasks (e.g. search for an infohash)
+    # $dht->find_peers($info_hash) if $should_search;
 }
 ```
 
 # DESCRIPTION
 
-`Net::BitTorrent::DHT` is a comprehensive implementation of the BitTorrent Mainline DHT protocol. It is designed to be
-transport-agnostic and event-loop friendly, making it suitable for integration into existing applications. It uses
-[Algorithm::Kademlia](https://metacpan.org/pod/Algorithm%3A%3AKademlia) for its core routing logic and [Net::BitTorrent::Protocol::BEP03::Bencode](https://metacpan.org/pod/Net%3A%3ABitTorrent%3A%3AProtocol%3A%3ABEP03%3A%3ABencode) for wire
-serialization.
+`Net::BitTorrent::DHT` is a feature-complete implementation of the BitTorrent Mainline DHT protocol. It supports IPv4,
+IPv6 (BEP 32), Security Extensions (BEP 42), Scrapes (BEP 33), Arbitrary Data Storage (BEP 44), and Infohash Indexing
+(BEP 51).
 
 # CONSTRUCTOR
 
 ## `new( %args )`
 
-Creates a new DHT node instance. All arguments are optional.
+Creates a new DHT node instance.
 
 ```perl
-my $dht = Net::BitTorrent::DHT->new( port => 8999 );
+my $dht = Net::BitTorrent::DHT->new(
+    port    => 6881,
+    want_v6 => 1,
+    bep44   => 1
+);
 ```
 
 - `node_id_bin`
 
-    A 20-byte binary string representing the unique Node ID. If not provided, one is generated randomly. It is recommended
-    to persist this ID between sessions.
+    A 20-byte binary string representing the local node ID. Defaults to a randomly generated ID if not provided. Note that
+    if BEP 42 is enabled, this ID may be automatically rotated if a new external IP is detected.
 
 - `port`
 
-    The UDP port to listen on. Defaults to `6881`.
+    The UDP port to listen on for DHT traffic. Defaults to `6881`.
 
 - `address`
 
-    The local address to bind to. Defaults to `undef` (binds to all interfaces).
+    The local IP address to bind the UDP socket to. Defaults to all available interfaces (`0.0.0.0` and `::`).
 
 - `want_v4`
 
-    Boolean. Enable IPv4 support. Defaults to `1`.
+    Enable or disable support for the IPv4 address family. Defaults to `1`.
 
 - `want_v6`
 
-    Boolean. Enable IPv6 support. Defaults to `1`.
+    Enable or disable support for the IPv6 address family. Defaults to `1`.
 
 - `v`
 
-    A 4-byte binary string representing the client version (e.g., `NB21`). This is included in every message to identify
-    the client software. The first two bytes should be a client identifier registered in BEP20, followed by two bytes
-    representing the version number. Optional but recommended.
+    A 4-byte client version string (BEP 20) used to identify the software to other nodes. Identifying strings are
+    conventionally two characters followed by two version digits (e.g. `NB01`).
 
 - `bep32`
 
-    Boolean. Enable BEP 32 (IPv6 extensions). Defaults to `1`.
+    Enable or disable support for IPv6 nodes and peers (BEP 32). Defaults to `1`.
 
 - `bep33`
 
-    Boolean. Enable BEP 33 (Scraping). Defaults to `1`.
+    Enable or disable DHT Scrapes (BEP 33), allowing queries for swarm seeder/leecher counts. Defaults to `1`.
 
 - `bep42`
 
-    Boolean. Enable BEP 42 (Security Extensions). Defaults to `1`.
+    Enable or disable DHT Security Extensions (BEP 42), which includes node ID validation and automatic ID rotation.
+    Defaults to `1`.
 
 - `bep44`
 
-    Boolean. Enable BEP 44 (Arbitrary Data). Defaults to `1`.
-
-    Note: Only supports immutable data unless dependencies are met.
+    Enable or disable Arbitrary Data Storage (BEP 44) for storing and retrieving mutable and immutable data. Defaults to
+    `1`.
 
 - `bep51`
 
-    Boolean. Enable BEP 51 (Infohash Indexing). Defaults to `1`.
+    Enable or disable Infohash Indexing (BEP 51), which allows nodes to sample infohashes stored on the network. Defaults
+    to `1`.
 
 - `read_only`
 
-    Boolean. Enable BEP 43 (Read-only mode). Defaults to `0`.
+    If set to `1`, the node will signal to other peers that it should not be added to their routing tables (BEP 43). This
+    is useful for low-bandwidth clients or those behind restrictive NATs. Defaults to `0`.
 
 - `boot_nodes`
 
-    An array reference of `[host, port]` tuples to use for bootstrapping. Defaults to standard public routers
-    (`router.bittorrent.com`, etc.).
+    An array reference of `[[host, port], ...]` used for the initial bootstrap process. Defaults to a list of standard
+    public DHT routers including `router.bittorrent.com` and `router.utorrent.com`.
 
 # METHODS
 
 ## `bootstrap( )`
 
-Initializes the node by querying the bootstrap nodes. This kicks off the process of finding other nodes and populating
-the routing table.
+Queries bootstrap nodes to join the network.
 
 ```
 $dht->bootstrap( );
@@ -117,29 +133,23 @@ $dht->bootstrap( );
 
 ## `tick( [$timeout] )`
 
-Checks for incoming packets and processes them. Should be called repeatedly in your event loop.
+The heartbeat of the DHT. Call this in your loop to process I/O.
 
 ```perl
-my ( $nodes, $peers, $data ) = $dht->tick( 0.5 );
+my ( $nodes, $peers, $data ) = $dht->tick( 0.1 );
 ```
-
-Returns a list of three elements:
-
-- `$nodes`: array of hash references representing new nodes found.
-- `$peers`: array of `Net::BitTorrent::DHT::Peer` objects found (responses to `get_peers`).
-- `$data`: hash of data or stats (responses to `get`, `scrape_peers`, `sample_infohashes`).
 
 ## `ping( $addr, $port )`
 
-Sends a ping query to a remote node. Useful for checking liveness.
+Sends a `ping` query.
 
 ```
-$dht->ping( '1.2.3.4', 6881 );
+$dht->ping( 'router.bittorrent.com', 6881 );
 ```
 
 ## `find_node_remote( $target_id, $addr, $port )`
 
-Queries a node for nodes close to the target ID. Used during routing table maintenance and lookups.
+Sends a `find_node` query.
 
 ```
 $dht->find_node_remote( $target_id, '1.2.3.4', 6881 );
@@ -147,7 +157,7 @@ $dht->find_node_remote( $target_id, '1.2.3.4', 6881 );
 
 ## `get_peers( $info_hash, $addr, $port )`
 
-Queries a node for peers associated with an infohash. The primary method for peer discovery.
+Sends a `get_peers` query.
 
 ```
 $dht->get_peers( $info_hash, '1.2.3.4', 6881 );
@@ -155,8 +165,8 @@ $dht->get_peers( $info_hash, '1.2.3.4', 6881 );
 
 ## `find_peers( $info_hash )`
 
-Performs a high-level iterative search for peers associated with an infohash. It queries the nodes closest to the
-infohash in the local routing table (both IPv4 and IPv6 if enabled).
+Queries nodes in the local routing table closest to the infohash. Note that this is a single-step (one-hop) lookup. For
+a full iterative Kademlia search, see the `eg/full_search.pl` example in the distribution.
 
 ```
 $dht->find_peers( $info_hash );
@@ -164,8 +174,7 @@ $dht->find_peers( $info_hash );
 
 ## `scrape( $info_hash )`
 
-Performs a high-level iterative scrape (BEP 33) for an infohash. It queries the nodes closest to the infohash for swarm
-statistics (seeders and leechers).
+Queries closest nodes for swarm statistics (BEP 33). This is also a single-step lookup.
 
 ```
 $dht->scrape( $info_hash );
@@ -173,26 +182,23 @@ $dht->scrape( $info_hash );
 
 ## `sample( $target_id )`
 
-Performs a high-level iterative sampling (BEP 51) starting from a target ID. It queries the closest nodes for random
-samples of infohashes they are currently storing.
+Queries closest nodes for infohash samples (BEP 51). Single-step lookup.
 
 ```
 $dht->sample( $target_id );
 ```
 
-## `announce_peer( $info_hash, $token, $implied_port, $addr, $port, [$seed] )`
+## `announce_peer( $info_hash, $token, $announce_port, $addr, $port, [$seed] )`
 
-Announces to a remote node that you are a peer for the given infohash. Requires a valid `$token` received from a
-previous `get_peers` response from that node.
+Announces your presence to a remote node. Requires a token obtained from a previous `get_peers` call to that node.
 
 ```
-# $token received from get_peers response
-$dht->announce_peer( $info_hash, $token, 6881, '1.2.3.4', 6881, 1 );
+$dht->announce_peer( $hash, $token, 6881, '1.2.3.4', 6881 );
 ```
 
 ## `get_remote( $target, $addr, $port )`
 
-Sends a BEP 44 `get` query to retrieve data associated with a target (SHA1 hash of the key or value).
+Retrieves data (BEP 44) from a specific node.
 
 ```
 $dht->get_remote( $target_hash, '1.2.3.4', 6881 );
@@ -200,52 +206,67 @@ $dht->get_remote( $target_hash, '1.2.3.4', 6881 );
 
 ## `put_remote( \%args, $addr, $port )`
 
-Sends a BEP 44 `put` query to store data on a remote node.
+Stores data (BEP 44) on a specific node.
 
 ```perl
-# Immutable Data
-$dht->put_remote( { v => 'Hello World' }, '1.2.3.4', 6881 );
+# Immutable
+$dht->put_remote( { v => 'data', token => $t }, '1.2.3.4', 6881 );
 
-# Mutable Data
-$dht->put_remote(
-{   v    => 'New Value',
-    k    => $public_key_bin,
-    sig  => $signature_bin,
-    seq  => $sequence_number,
-    salt => 'optional_salt'
-}, '1.2.3.4', 6881 );
+# Mutable
+$dht->put_remote({
+    v     => 'new data',
+    k     => $pubkey,
+    sig   => $signature,
+    seq   => 2,
+    cas   => 1, # Optional: only update if current seq is 1
+    token => $t
+}, '1.2.3.4', 6881);
 ```
 
 ## `scrape_peers_remote( $info_hash, $addr, $port )`
 
-Sends a BEP 33 scrape query to get statistics (seeders/leechers) for an infohash.
+Directly queries a specific node for swarm statistics.
 
 ```
-$dht->scrape_peers_remote( $info_hash, '1.2.3.4', 6881 );
+$dht->scrape_peers_remote( $hash, '1.2.3.4', 6881 );
 ```
 
 ## `sample_infohashes_remote( $target_id, $addr, $port )`
 
-Sends a BEP 51 sample infohashes query to discover infohashes stored on a node.
+Directly queries a specific node for infohash samples.
 
 ```
-$dht->sample_infohashes_remote( $target_id, '1.2.3.4', 6881 );
+$dht->sample_infohashes_remote( $target, '1.2.3.4', 6881 );
+```
+
+## `routing_table_stats( )`
+
+Returns a hash reference containing the count of nodes in each bucket for both IPv4 and IPv6 tables.
+
+```perl
+my $stats = $dht->routing_table_stats( );
+printf "Bucket 0 has %d nodes\n", $stats->{v4}[0]{count};
 ```
 
 ## `export_state( )`
 
-Returns the current state (routing table buckets, values, peers) as a hash reference. This is essential for saving the
-DHT's progress so it doesn't have to re-bootstrap on restart.
+Returns a hash representation of the current routing table, peer storage, and data storage.
 
 ```perl
 my $state = $dht->export_state( );
-# Save $state to disk...
+```
+
+## `import_state( $state )`
+
+Restores the DHT state from a hash generated by `export_state()`.
+
+```
+$dht->import_state( $state );
 ```
 
 ## `set_node_id( $new_id )`
 
-Updates the local node ID. This is typically used during **node ID rotation** when a new external IP address is
-detected.
+Updates the local node ID and refreshes the routing tables.
 
 ```
 $dht->set_node_id( $new_id );
@@ -253,59 +274,38 @@ $dht->set_node_id( $new_id );
 
 ## `external_ip( )`
 
-Returns the current external IP address string as detected by the DHT network. Returns `undef` if no consensus has
-been reached yet.
+Returns the current external IP address string as detected by the network (consensus of 5+ nodes).
 
 ```perl
-my $ip = $dht->external_ip();
+if ( my $ip = $dht->external_ip ) {
+    say "Network sees us as: $ip";
+}
 ```
 
 ## `on( $event, $cb )`
 
-Registers a callback for a specific event.
+Registers an event handler.
 
 ```perl
-$dht->on('external_ip_detected', sub ($ip) {
-    say "Confirmed external IP: $ip";
+$dht->on( external_ip_detected => sub ( $ip ) {
+    say "New IP: $ip";
 });
-```
-
-Supported events:
-
-- `external_ip_detected`
-
-    Triggered when a consensus is reached among remote nodes regarding our external IP address. The first argument is the
-    detected IP address string.
-
-## `import_state( $state )`
-
-Restores the DHT state from a hash reference previously generated by `export_state()`.
-
-```
-$dht->import_state( $loaded_state );
 ```
 
 ## `run( )`
 
-A simple blocking loop that calls `tick( 1 )` indefinitely. Useful for simple scripts.
+Blocking loop for simple standalone usage.
 
 ```
 $dht->run( );
 ```
 
-## `handle_incoming( )`
+## `handle_incoming( [$data, $sender] )`
 
-Manually processes a single packet from the socket. Used when integrating with other event loops where you control the
-socket reading.
+Processes a packet. Can be called with raw data for custom I/O.
 
 ```perl
-$loop->watch_io(
-    handle => $dht->socket,
-    on_read_ready => sub {
-        my ($nodes, $peers, $data) = $dht->handle_incoming();
-        # ...
-    }
-);
+my ( $nodes, $peers, $data ) = $dht->handle_incoming( $raw_data, $sender_sockaddr );
 ```
 
 # Event Loop Integration
@@ -314,7 +314,7 @@ This module is designed to be protocol-agnostic regarding the event loop.
 
 ## Using with IO::Select (Default)
 
-Simply call `tick($timeout)` in your own loop.
+Simply call `tick( $timeout )` in your own loop.
 
 ## Using with IO::Async
 
@@ -322,11 +322,11 @@ Simply call `tick($timeout)` in your own loop.
 my $handle = IO::Async::Handle->new(
     handle => $dht->socket,
     on_read_ready => sub {
-        my ($nodes, $peers) = $dht->handle_incoming();
+        my ($nodes, $peers) = $dht->handle_incoming( );
         # ...
     },
 );
-$loop->add($handle);
+$loop->add( $handle );
 ```
 
 # Supported BEPs
@@ -361,6 +361,15 @@ or low-bandwidth clients. Set the `read_only` constructor argument to a true val
 
 Enables `get` and `put` operations for storing immutable and mutable data items in the DHT. Can be explicitly
 disabled via the `bep44` constructor argument.
+
+Requests are tracked using internal Transaction IDs (TIDs) to ensure that tokens received from `get` queries are
+correctly matched to their intended targets during subsequent `put` operations.
+
+The node strictly enforces BEP 44 security requirements:
+
+- Signatures must be valid and follow the bencoded alphabetical field order.
+- Sequence numbers must strictly increase for updates.
+- CAS (Compare-and-Swap) is supported to prevent race conditions during concurrent updates.
 
 In order to handle mutable data, [Crypt::PK::Ed25519](https://metacpan.org/pod/Crypt%3A%3APK%3A%3AEd25519) or [Crypt::Perl::Ed25519::PublicKey](https://metacpan.org/pod/Crypt%3A%3APerl%3A%3AEd25519%3A%3APublicKey) must be installed.
 

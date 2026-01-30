@@ -2,14 +2,14 @@ use v5.40;
 use feature 'class';
 no warnings 'experimental::class';
 #
-class Net::BitTorrent::DHT::Peer v2.0.4 {
+class Net::BitTorrent::DHT::Peer v2.0.5 {
     field $ip     : param : reader;
     field $port   : param : reader;
     field $family : param : reader;
     method to_string () {"$ip:$port"}
 };
 #
-class Net::BitTorrent::DHT v2.0.4 {
+class Net::BitTorrent::DHT v2.0.5 {
     use Algorithm::Kademlia;
     use Net::BitTorrent::DHT::Security;
     use Net::BitTorrent::Protocol::BEP03::Bencode qw[bencode bdecode];
@@ -19,16 +19,16 @@ class Net::BitTorrent::DHT v2.0.4 {
     use IO::Select;
     use Digest::SHA qw[sha1];
     #
-    field $node_id_bin : param : reader;
+    field $node_id_bin : param : reader //= pack 'C*', map { int( rand(256) ) } 1 .. 20;
     field $port             : param : reader = 6881;
     field $address          : param //= undef;
-    field $want_v4          : param : reader = 1;
-    field $want_v6          : param : reader = 1;
-    field $bep32            : param : reader = 1;
-    field $bep42            : param : reader = 1;
-    field $bep33            : param : reader = 1;
-    field $bep44            : param : reader = 1;
-    field $bep51            : param : reader = 1;
+    field $want_v4          : param : reader //= 1;
+    field $want_v6          : param : reader //= 1;
+    field $bep32            : param : reader //= 1;
+    field $bep42            : param : reader //= 1;
+    field $bep33            : param : reader //= 1;
+    field $bep44            : param : reader //= 1;
+    field $bep51            : param : reader //= 1;
     field $read_only        : param  = 0;
     field $security         : reader = Net::BitTorrent::DHT::Security->new();
     field $routing_table_v4 : reader = Algorithm::Kademlia::RoutingTable->new( local_id_bin => $node_id_bin, k => 8 );
@@ -39,26 +39,27 @@ class Net::BitTorrent::DHT v2.0.4 {
     field $select //= IO::Select->new($socket);
     field $token_secret     = pack( 'N', rand( 2**32 ) ) . pack( 'N', rand( 2**32 ) );
     field $token_old_secret = $token_secret;
-    field $last_rotation    = time();
+    field $last_rotation    = time;
     field $boot_nodes : param : reader : writer //= [ [ 'router.bittorrent.com', 6881 ], [ 'router.utorrent.com', 6881 ],
-        [ 'dht.transmissionbt.com', 6881 ], [ 'dht.aelitis.com', 6881 ] ];
+        [ 'dht.transmissionbt.com', 6881 ] ];
+    field @_resolved_boot_nodes;
     field $v : param : reader //= ();
+    field $debug : param = 0;
     field $_ed25519_backend = ();
     field $running          = 0;
     field %_blacklist;
     field %ip_votes;    # external_ip => count
     field $external_ip : reader = undef;
     field %on;
-
-    method on ( $event, $cb ) {
-        push $on{$event}->@*, $cb;
-    }
+    field %_pending_queries;
+    field $_tid_counter = 0;
+    method on ( $event, $cb ) { push $on{$event}->@*, $cb }
 
     method _emit ( $event, @args ) {
         for my $cb ( $on{$event}->@* ) {
             try { $cb->(@args) } catch ($e) {
                 warn "[ERROR] DHT event $event failed: $e"
-            };
+            }
         }
     }
 
@@ -69,6 +70,16 @@ class Net::BitTorrent::DHT v2.0.4 {
     }
     ADJUST {
         $socket // die "Could not create UDP socket: $!";
+
+        # Pre-resolve bootstrap nodes
+        for my $r (@$boot_nodes) {
+            my ( $err, @res ) = getaddrinfo( $r->[0], $r->[1], { socktype => SOCK_DGRAM } );
+            if ($err) {
+                warn "[WARN] Could not resolve bootstrap node $r->[0]:$r->[1]: $err" if $debug;
+                next;
+            }
+            push @_resolved_boot_nodes, $res[0]{addr};
+        }
         $self->on(
             external_ip_detected => sub ($ip) {
                 return unless $bep42;
@@ -105,6 +116,15 @@ class Net::BitTorrent::DHT v2.0.4 {
         }
     }
     method routing_table () {$routing_table_v4}    # Backward compatibility
+
+    method routing_table_stats () {
+        my $stats = { v4 => [], v6 => [] };
+        my $idx   = 0;
+        push $stats->{v4}->@*, { index => $idx++, count => scalar @$_ } for $routing_table_v4->buckets;
+        $idx = 0;
+        push $stats->{v6}->@*, { index => $idx++, count => scalar @$_ } for $routing_table_v6->buckets;
+        return $stats;
+    }
 
     method export_state () {
         my @nodes_v4;
@@ -143,10 +163,10 @@ class Net::BitTorrent::DHT v2.0.4 {
     }
 
     method _rotate_tokens () {
-        if ( time() - $last_rotation > 300 ) {
+        if ( time - $last_rotation > 300 ) {
             $token_old_secret = $token_secret;
             $token_secret     = pack( 'N', rand( 2**32 ) ) . pack( 'N', rand( 2**32 ) );
-            $last_rotation    = time();
+            $last_rotation    = time;
         }
     }
 
@@ -162,39 +182,56 @@ class Net::BitTorrent::DHT v2.0.4 {
     }
 
     method bootstrap () {
-        for my $r (@$boot_nodes) {
-            $self->ping( $r->@* );
-            $self->find_node_remote( $node_id_bin, $r->@* );
+        for my $addr (@_resolved_boot_nodes) {
+            $self->_send( { t => 'pn', y => 'q', q => 'ping',      a => { id => $node_id_bin } },                         $addr );
+            $self->_send( { t => 'fn', y => 'q', q => 'find_node', a => { id => $node_id_bin, target => $node_id_bin } }, $addr );
         }
     }
 
-    method ping ( $addr, $port ) {
-        $self->_send( { t => 'pn', y => 'q', q => 'ping', a => { id => $node_id_bin } }, $addr, $port );
+    method ping ( $addr, $port = undef ) {
+        my $tid = $self->_next_tid();
+        $_pending_queries{$tid} = { q => 'ping', time => time };
+        $self->_send( { t => $tid, y => 'q', q => 'ping', a => { id => $node_id_bin } }, $addr, $port );
     }
 
-    method find_node_remote ( $target_id, $addr, $port ) {
-        $self->_send( { t => 'fn', y => 'q', q => 'find_node', a => { id => $node_id_bin, target => $target_id } }, $addr, $port );
+    method _next_tid () {
+        $_tid_counter = ( $_tid_counter + 1 ) % 0xFFFF;
+        pack 'n', $_tid_counter;
     }
 
-    method get_peers ( $info_hash, $addr, $port ) {
-        $self->_send( { t => 'gp', y => 'q', q => 'get_peers', a => { id => $node_id_bin, info_hash => $info_hash } }, $addr, $port );
+    method find_node_remote ( $target_id, $addr, $port = undef ) {
+        my $tid = $self->_next_tid();
+        $_pending_queries{$tid} = { q => 'find_node', target => $target_id, time => time };
+        $self->_send( { t => $tid, y => 'q', q => 'find_node', a => { id => $node_id_bin, target => $target_id } }, $addr, $port );
     }
 
-    method get_remote ( $target, $addr, $port ) {
+    method get_peers ( $info_hash, $addr, $port = undef ) {
+        my $tid = $self->_next_tid();
+        $_pending_queries{$tid} = { q => 'get_peers', target => $info_hash, time => time };
+        $self->_send( { t => $tid, y => 'q', q => 'get_peers', a => { id => $node_id_bin, info_hash => $info_hash } }, $addr, $port );
+    }
+
+    method get_remote ( $target, $addr, $port = undef ) {
         return unless $bep44;
-        $self->_send( { t => 'gt', y => 'q', q => 'get', a => { id => $node_id_bin, target => $target } }, $addr, $port );
+        my $tid = $self->_next_tid();
+        $_pending_queries{$tid} = { q => 'get', target => $target, time => time };
+        $self->_send( { t => $tid, y => 'q', q => 'get', a => { id => $node_id_bin, target => $target } }, $addr, $port );
     }
 
-    method put_remote ( $args, $addr, $port ) {
+    method put_remote ( $args, $addr, $port = undef ) {
         return unless $bep44;
+        my $tid = $self->_next_tid();
+        $_pending_queries{$tid} = { q => 'put', time => time };
 
         # $args should contain 'v' and optionally 'k', 'sig', 'seq', 'salt', 'cas'
-        $self->_send( { t => 'pt', y => 'q', q => 'put', a => { id => $node_id_bin, %$args } }, $addr, $port );
+        $self->_send( { t => $tid, y => 'q', q => 'put', a => { id => $node_id_bin, %$args } }, $addr, $port );
     }
 
-    method announce_peer ( $info_hash, $token, $announce_port, $addr, $port, $is_seed //= 0 ) {
+    method announce_peer ( $info_hash, $token, $announce_port, $addr, $port = undef, $is_seed //= 0 ) {
+        my $tid = $self->_next_tid();
+        $_pending_queries{$tid} = { q => 'announce_peer', target => $info_hash, time => time };
         my $msg = {
-            t => 'ap',
+            t => $tid,
             y => 'q',
             q => 'announce_peer',
             a => { id => $node_id_bin, info_hash => $info_hash, port => $announce_port, token => $token, ( $bep33 && $is_seed ? ( seed => 1 ) : () ) }
@@ -202,9 +239,11 @@ class Net::BitTorrent::DHT v2.0.4 {
         $self->_send( $msg, $addr, $port );
     }
 
-    method scrape_peers_remote ( $info_hash, $addr, $port ) {
+    method scrape_peers_remote ( $info_hash, $addr, $port = undef ) {
         return unless $bep33;
-        $self->_send( { t => 'sp', y => 'q', q => 'scrape_peers', a => { id => $node_id_bin, info_hash => $info_hash } }, $addr, $port );
+        my $tid = $self->_next_tid();
+        $_pending_queries{$tid} = { q => 'scrape_peers', target => $info_hash, time => time };
+        $self->_send( { t => $tid, y => 'q', q => 'scrape_peers', a => { id => $node_id_bin, info_hash => $info_hash } }, $addr, $port );
     }
 
     method find_peers ($info_hash) {
@@ -221,9 +260,7 @@ class Net::BitTorrent::DHT v2.0.4 {
         my @learned;
         push @learned, $routing_table_v4->find_closest($info_hash) if $want_v4;
         push @learned, $routing_table_v6->find_closest($info_hash) if $want_v6 && $bep32;
-        for my $node (@learned) {
-            $self->scrape_peers_remote( $info_hash, $node->{data}{ip}, $node->{data}{port} );
-        }
+        $self->scrape_peers_remote( $info_hash, $_->{data}{ip}, $_->{data}{port} ) for @learned;
     }
 
     method sample ($target) {
@@ -231,14 +268,14 @@ class Net::BitTorrent::DHT v2.0.4 {
         my @learned;
         push @learned, $routing_table_v4->find_closest($target) if $want_v4;
         push @learned, $routing_table_v6->find_closest($target) if $want_v6 && $bep32;
-        for my $node (@learned) {
-            $self->sample_infohashes_remote( $target, $node->{data}{ip}, $node->{data}{port} );
-        }
+        $self->sample_infohashes_remote( $target, $_->{data}{ip}, $_->{data}{port} ) for @learned;
     }
 
-    method sample_infohashes_remote ( $target, $addr, $port ) {
+    method sample_infohashes_remote ( $target, $addr, $port = undef ) {
         return unless $bep51;
-        $self->_send( { t => 'si', y => 'q', q => 'sample_infohashes', a => { id => $node_id_bin, target => $target } }, $addr, $port );
+        my $tid = $self->_next_tid();
+        $_pending_queries{$tid} = { q => 'sample_infohashes', target => $target, time => time };
+        $self->_send( { t => $tid, y => 'q', q => 'sample_infohashes', a => { id => $node_id_bin, target => $target } }, $addr, $port );
     }
 
     method tick ( $timeout //= 0 ) {
@@ -257,9 +294,21 @@ class Net::BitTorrent::DHT v2.0.4 {
         my ( $port, $ip ) = $self->_unpack_address($sender);
         return ( [], [], undef ) unless $ip;
 
+        if ($debug) {
+            my $type = ( $msg->{y} // '' ) eq 'q' ? "QUERY ($msg->{q})" : "RESPONSE";
+            say "[DEBUG] RECV $type from $ip:$port";
+        }
         if ( ( $msg->{y} // '' ) eq 'q' ) {
             my $node = $self->_handle_query( $msg, $sender, $ip, $port );
             return ( $node ? [$node] : [], [], undef );    # Return flat format
+        }
+        if ( ( $msg->{y} // '' ) eq 'e' ) {
+            if ($debug) {
+                my $code = $msg->{e}->[0] // 'unknown';
+                my $text = $msg->{e}->[1] // 'no message';
+                say "[DEBUG] RECV ERROR $code: $text from $ip:$port";
+            }
+            return ( [], [], undef );
         }
         return $self->_handle_response( $msg, $sender, $ip, $port ) if $msg->{y} eq 'r';
         return ( [], [], undef );
@@ -317,9 +366,9 @@ class Net::BitTorrent::DHT v2.0.4 {
         elsif ( $q eq 'get_peers' ) {
             my $info_hash = $a->{info_hash};
             $res->{r}{token} = $self->_generate_token($ip);
-            my $peers = $peer_storage->get($info_hash);
-            if ( $peers && @{ $peers->value } ) {
-                my @filtered = grep { ( $_->{ip} =~ /:/ ) ? $want_v6 : $want_v4 } @{ $peers->value };
+            my $peers_obj = $peer_storage->get($info_hash);
+            if ( $peers_obj && @{ $peers_obj->value } ) {
+                my @filtered = grep { ( $_->{ip} =~ /:/ ) ? $want_v6 : $want_v4 } @{ $peers_obj->value };
                 $res->{r}{values} = $self->_pack_peers_raw( \@filtered );
             }
             else {
@@ -334,13 +383,14 @@ class Net::BitTorrent::DHT v2.0.4 {
         elsif ( $q eq 'announce_peer' ) {
             my $info_hash = $a->{info_hash};
             if ( $self->_verify_token( $ip, $a->{token} ) ) {
-                my $peers    = $peer_storage->get($info_hash) // ();
-                my $new_peer = {
+                my $peers_obj = $peer_storage->get($info_hash);
+                my @peers     = $peers_obj ? @{ $peers_obj->value } : ();
+                my $new_peer  = {
                     ip => $ip,
                     port => ( $a->{implied_port} ? $port : $a->{port} ),
                     ( $bep33 && defined $a->{seed} ? ( seed => $a->{seed} ) : () )
                 };
-                my @peers = grep { $_->{ip} ne $ip } @{ $peers->value } if defined $peers;
+                @peers = grep { $_->{ip} ne $ip } @peers;
                 push @peers, $new_peer;
                 $peer_storage->put( $info_hash, \@peers );
             }
@@ -348,9 +398,10 @@ class Net::BitTorrent::DHT v2.0.4 {
         elsif ( $q eq 'scrape_peers' ) {
             if ($bep33) {
                 my $info_hash = $a->{info_hash};
-                my $peers     = $peer_storage->get($info_hash) // [];
-                my $seeders   = grep { $_->{seed} } @{ $peers->value };
-                my $leechers  = @{ $peers->value } - $seeders;
+                my $peers_obj = $peer_storage->get($info_hash);
+                my $peers     = $peers_obj ? $peers_obj->value : [];
+                my $seeders   = grep { $_->{seed} } @$peers;
+                my $leechers  = @$peers - $seeders;
                 $res->{r}{sn} = $seeders;
                 $res->{r}{ln} = $leechers;
             }
@@ -361,10 +412,10 @@ class Net::BitTorrent::DHT v2.0.4 {
         }
         elsif ( $q eq 'get' ) {
             if ($bep44) {
-                my $target = $a->{target};
-                my $data   = $data_storage->get($target);
-                if ($data) {
-                    $res->{r} = { %{ $res->{r} }, %{ $data->value } };
+                my $target   = $a->{target};
+                my $data_obj = $data_storage->get($target);
+                if ($data_obj) {
+                    $res->{r} = { %{ $res->{r} }, %{ $data_obj->value } };
                 }
                 else {
                     my @closest;
@@ -387,13 +438,14 @@ class Net::BitTorrent::DHT v2.0.4 {
 
                     # Validate signature
                     my $to_sign = '';
-                    $to_sign .= 'salt' . length( $a->{salt} ) . ':' . $a->{salt} if defined $a->{salt};
-                    $to_sign .= 'seqi' . $a->{seq} . 'e';
-                    $to_sign .= 'v' . length($v) . ':' . $v;
+                    $to_sign .= '3:cas' . bencode( $a->{cas} )   if defined $a->{cas};
+                    $to_sign .= '4:salt' . bencode( $a->{salt} ) if defined $a->{salt} && length $a->{salt};
+                    $to_sign .= '3:seq' . bencode( $a->{seq} );
+                    $to_sign .= '1:v' . bencode($v);
                     if ( defined $_ed25519_backend && $_ed25519_backend->( $self, $a->{sig}, $to_sign, $a->{k} ) ) {
-                        my $existing = $data_storage->get($target);
-                        if ( !defined $existing || $a->{seq} > $existing->value->{seq} ) {
-                            if ( !defined $a->{cas} || ( $existing && $existing->value->{seq} == $a->{cas} ) ) {
+                        my $existing_obj = $data_storage->get($target);
+                        if ( !defined $existing_obj || $a->{seq} > $existing_obj->value->{seq} ) {
+                            if ( !defined $a->{cas} || ( $existing_obj && $existing_obj->value->{seq} == $a->{cas} ) ) {
                                 $data_storage->put(
                                     $target,
                                     {   v   => $v,
@@ -409,7 +461,7 @@ class Net::BitTorrent::DHT v2.0.4 {
                     else {
                         # BEP 44: "If the signature is invalid, the request MUST be rejected."
                         # Additionally, we blacklist the peer for attempting a malicious update.
-                        $_blacklist{$ip} = time();
+                        $_blacklist{$ip} = time;
                         return;
                     }
                 }
@@ -449,6 +501,16 @@ class Net::BitTorrent::DHT v2.0.4 {
         return ( [], [], undef )                if $_blacklist{$ip};
         my $r = $msg->{r};
         return ( [], [], undef ) unless $r && $r->{id};
+        my $tid     = $msg->{t} // '';
+        my $pending = delete $_pending_queries{$tid};
+
+        # Periodic cleanup of old pending queries (older than 30s)
+        if ( rand() < 0.01 ) {
+            my $now = time;
+            for my $k ( keys %_pending_queries ) {
+                delete $_pending_queries{$k} if $now - $_pending_queries{$k}{time} > 30;
+            }
+        }
         if ( $bep42 && !$security->validate_node_id( $r->{id}, $ip ) ) {
             return ( [], [], undef );
         }
@@ -456,12 +518,11 @@ class Net::BitTorrent::DHT v2.0.4 {
         my $stale = $table->add_peer( $r->{id}, { ip => $ip, port => $port } );
         $self->ping( $stale->{data}{ip}, $stale->{data}{port} ) if $stale;
         my $peers = [];
-        if ( $r->{values} ) {
-            $peers = $self->_unpack_peers( $r->{values} );
-        }
+        $peers = $self->_unpack_peers( $r->{values} ) if $r->{values};
         my @learned;
         push @learned, $self->_unpack_nodes( $r->{nodes},  AF_INET )->@*  if $r->{nodes};
         push @learned, $self->_unpack_nodes( $r->{nodes6}, AF_INET6 )->@* if $r->{nodes6};
+
         for my $node (@learned) {
             next if $bep42 && !$security->validate_node_id( $node->{id}, $node->{ip} );
             my $ntable = ( $node->{ip} =~ /:/ ) ? $routing_table_v6 : $routing_table_v4;
@@ -471,9 +532,9 @@ class Net::BitTorrent::DHT v2.0.4 {
         # Always include the responding node itself
         push @learned, { id => $r->{id}, ip => $ip, port => $port };
         my $scrape;
-        $scrape = { id => $r->{id}, ip => $ip, port => $port, sn => $r->{sn}, ln => $r->{ln} } if ( $msg->{t} // '' ) eq 'sp';
+        $scrape = { id => $r->{id}, ip => $ip, port => $port, sn => $r->{sn}, ln => $r->{ln} } if $pending && $pending->{q} eq 'scrape_peers';
         my $data;
-        if ( ( $msg->{t} // '' ) eq 'gt' && defined $r->{v} ) {
+        if ( defined $r->{v} ) {
             $data = {
                 id    => $r->{id},
                 ip    => $ip,
@@ -487,7 +548,7 @@ class Net::BitTorrent::DHT v2.0.4 {
             };
         }
         my $sample;
-        if ( ( $msg->{t} // '' ) eq 'si' && defined $r->{samples} ) {
+        if ( $pending && $pending->{q} eq 'sample_infohashes' && defined $r->{samples} ) {
             my @samples;
             my $blob = $r->{samples};
             push @samples, substr( $blob, 0, 20, '' ) while length($blob) >= 20;
@@ -495,25 +556,37 @@ class Net::BitTorrent::DHT v2.0.4 {
         }
         my $token_only;
         $token_only = { id => $r->{id}, ip => $ip, port => $port, token => $r->{token} } if defined $r->{token} && !$data;
-        return ( \@learned, $peers, $scrape // $data // $sample // $token_only );
+        my $result = $scrape // $data // $sample // $token_only;
+        $result->{queried_target} = $pending->{target} if $result && $pending && $pending->{target};
+        return ( \@learned, $peers, $result );
     }
 
-    method _send ( $msg, $addr, $port ) {
+    method _send ( $msg, $addr, $port //= undef ) {
         $msg->{v}     = $v if defined $v;
         $msg->{a}{ro} = 1  if $read_only && $msg->{y} eq 'q';
+        if ( !defined $port && !ref $addr && length($addr) >= 16 ) {
+            $self->_send_raw( bencode($msg), $addr );
+            return;
+        }
+        ( $addr, $port ) = @$addr if ref $addr eq 'ARRAY';
         my ( $err, @res ) = getaddrinfo( $addr, $port, { socktype => SOCK_DGRAM } );
-        return if $err || !@res;
+        if ($err) {
+            warn "[WARN] getaddrinfo failed for $addr" . ( defined $port ? ":$port" : "" ) . ": $err" if $debug;
+            return;
+        }
         for my $res (@res) {
             my $family = sockaddr_family( $res->{addr} );
-            if ( $family == AF_INET && $want_v4 ) {
-                $self->_send_raw( bencode($msg), $res->{addr} );
-            }
-            elsif ( $family == AF_INET6 && $want_v6 ) {
-                $self->_send_raw( bencode($msg), $res->{addr} );
-            }
+            $self->_send_raw( bencode($msg), $res->{addr} ) if ( ( $family == AF_INET && $want_v4 ) || ( $family == AF_INET6 && $want_v6 ) );
         }
     }
-    method _send_raw ( $data, $dest ) { $socket->send( $data, 0, $dest ) }
+
+    method _send_raw ( $data, $dest ) {
+        if ($debug) {
+            my ( $port, $ip ) = $self->_unpack_address($dest);
+            say "[DEBUG] SEND to $ip:$port";
+        }
+        $socket->send( $data, 0, $dest );
+    }
 
     method _pack_nodes ($peers) {
         my $v4 = '';
@@ -554,16 +627,27 @@ class Net::BitTorrent::DHT v2.0.4 {
         my @peers;
         my @blobs = ( ref($list) eq 'ARRAY' ) ? @$list : ($list);
         for my $blob (@blobs) {
-            while ( length($blob) >= 6 ) {
-                if ( length($blob) % 18 == 0 ) {
-                    my $chunk = substr( $blob, 0, 18, '' );
-                    my ( $ip_bin, $port ) = unpack( 'a16 n', $chunk );
-                    push @peers, Net::BitTorrent::DHT::Peer->new( ip => inet_ntop( AF_INET6, $ip_bin ), port => $port, family => 6 ) if $want_v6;
-                }
-                else {
-                    my $chunk = substr( $blob, 0, 6, '' );
-                    my ( $ip_bin, $port ) = unpack( 'a4 n', $chunk );
-                    push @peers, Net::BitTorrent::DHT::Peer->new( ip => inet_ntoa($ip_bin), port => $port, family => 4 ) if $want_v4;
+            if ( length($blob) == 18 ) {
+                my ( $ip_bin, $port ) = unpack( 'a16 n', $blob );
+                push @peers, Net::BitTorrent::DHT::Peer->new( ip => inet_ntop( AF_INET6, $ip_bin ), port => $port, family => 6 ) if $want_v6;
+            }
+            elsif ( length($blob) == 6 ) {
+                my ( $ip_bin, $port ) = unpack( 'a4 n', $blob );
+                push @peers, Net::BitTorrent::DHT::Peer->new( ip => inet_ntoa($ip_bin), port => $port, family => 4 ) if $want_v4;
+            }
+            else {
+                # Fallback for non-standard implementations that pack multiple peers into one string
+                while ( length($blob) >= 6 ) {
+                    if ( length($blob) >= 18 && ( length($blob) % 18 == 0 ) ) {
+                        my $chunk = substr( $blob, 0, 18, '' );
+                        my ( $ip_bin, $port ) = unpack( 'a16 n', $chunk );
+                        push @peers, Net::BitTorrent::DHT::Peer->new( ip => inet_ntop( AF_INET6, $ip_bin ), port => $port, family => 6 ) if $want_v6;
+                    }
+                    else {
+                        my $chunk = substr( $blob, 0, 6, '' );
+                        my ( $ip_bin, $port ) = unpack( 'a4 n', $chunk );
+                        push @peers, Net::BitTorrent::DHT::Peer->new( ip => inet_ntoa($ip_bin), port => $port, family => 4 ) if $want_v4;
+                    }
                 }
             }
         }
@@ -604,4 +688,5 @@ class Net::BitTorrent::DHT v2.0.4 {
         $self->tick(1) while $running;
     }
 };
+#
 1;
