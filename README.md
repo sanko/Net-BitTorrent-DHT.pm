@@ -121,7 +121,7 @@ my $dht = Net::BitTorrent::DHT->new(
     An array reference of `[[host, port], ...]` used for the initial bootstrap process. Defaults to a list of standard
     public DHT routers including `router.bittorrent.com` and `router.utorrent.com`.
 
-    \- \`node\_id\_rotation\_interval\`
+- `node_id_rotation_interval`
 
     The interval, in seconds, at which the node ID should be automatically rotated if BEP 42 is enabled. Defaults to
     `7200` (2 hours).

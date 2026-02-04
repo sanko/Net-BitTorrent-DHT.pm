@@ -7,6 +7,9 @@ All notable changes to Net::BitTorrent::DHT will probably be documented in this 
 ### Added
 
 - Added `node_id_rotation_interval` parameter to constructor (default: 2 hours).
+- Added high-level `announce_infohash($ih, $port)` method which simplifies the multi-step `get_peers` and `announce_peer` process.
+- Added `export_state()` and `import_state()` methods to facilitate DHT routing table persistence across sessions.
+- Added `validate_node_id()` method to `Net::BitTorrent::DHT::Security` for BEP 42 compliance.
 
 ## [v2.0.5] - 2026-01-30
 

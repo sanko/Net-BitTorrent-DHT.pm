@@ -123,7 +123,7 @@ is useful for low-bandwidth clients or those behind restrictive NATs. Defaults t
 An array reference of C<[[host, port], ...]> used for the initial bootstrap process. Defaults to a list of standard
 public DHT routers including C<router.bittorrent.com> and C<router.utorrent.com>.
 
-- `node_id_rotation_interval`
+=item C<node_id_rotation_interval>
 
 The interval, in seconds, at which the node ID should be automatically rotated if BEP 42 is enabled. Defaults to
 C<7200> (2 hours).
@@ -162,6 +162,13 @@ Sends a C<find_node> query.
 Sends a C<get_peers> query.
 
     $dht->get_peers( $info_hash, '1.2.3.4', 6881 );
+
+=head2 C<announce_infohash( $info_hash, $port )>
+
+Finds nodes closest to the given infohash and announces that the local node is downloading/seeding on the specified
+port. This is a high-level method that combines multiple C<get_peers> and C<announce_peer> calls.
+
+    $dht->announce_infohash( $info_hash, 6881 );
 
 =head2 C<find_peers( $info_hash )>
 

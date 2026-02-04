@@ -246,6 +246,15 @@ class Net::BitTorrent::DHT v2.0.6 {
         $self->_send( $msg, $addr, $port );
     }
 
+    method announce_infohash ( $ih, $port ) {
+        my @learned;    # High level: find closest nodes and announce
+        push @learned, $routing_table_v4->find_closest($ih) if $want_v4;
+        push @learned, $routing_table_v6->find_closest($ih) if $want_v6 && $bep32;
+
+        # get_peers first to get tokens
+        $self->get_peers( $ih, $_->{data}{ip}, $_->{data}{port} ) for @learned;
+    }
+
     method scrape_peers_remote ( $info_hash, $addr, $port = undef ) {
         return unless $bep33;
         my $tid = $self->_next_tid();
@@ -257,9 +266,7 @@ class Net::BitTorrent::DHT v2.0.6 {
         my @learned;
         push @learned, $routing_table_v4->find_closest($info_hash) if $want_v4;
         push @learned, $routing_table_v6->find_closest($info_hash) if $want_v6 && $bep32;
-        for my $node (@learned) {
-            $self->get_peers( $info_hash, $node->{data}{ip}, $node->{data}{port} );
-        }
+        $self->get_peers( $info_hash, $_->{data}{ip}, $_->{data}{port} ) for @learned;
     }
 
     method scrape ($info_hash) {
