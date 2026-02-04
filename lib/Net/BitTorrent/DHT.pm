@@ -103,8 +103,16 @@ class Net::BitTorrent::DHT v2.0.6 {
                 try {
                     require Crypt::Perl::Ed25519::PublicKey;
                     $_ed25519_backend = method( $sig, $msg, $key ) {
-                        try { return Crypt::Perl::Ed25519::PublicKey->new($key)->verify( $msg, $sig ) }
-                        catch ($e2) { warn $e2; return 0; }
+                        try {
+                            # Crypt::Perl might throw if key or sig length is invalid
+                            return 0 unless length($key) == 32;
+                            return 0 unless length($sig) == 64;
+                            my $pk = Crypt::Perl::Ed25519::PublicKey->new($key);
+                            return $pk->verify( $msg, $sig );
+                        }
+                        catch ($e2) {
+                            return 0;
+                        }
                     }
                 }
                 catch ($e2) { }

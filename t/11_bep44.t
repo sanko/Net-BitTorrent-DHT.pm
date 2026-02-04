@@ -54,8 +54,9 @@ subtest 'Mutable data' => sub {
         $pub_key = $pk_ed->export_key_raw('public');
     }
     else {
-        $pk_ed   = Crypt::Perl::Ed25519::PrivateKey->new();
-        $pub_key = $pk_ed->get_public;
+        $pk_ed = Crypt::Perl::Ed25519::PrivateKey->new();
+        my $tmp_pub = $pk_ed->get_public;
+        $pub_key = ref $tmp_pub ? $tmp_pub->encode : $tmp_pub;
     }
     $v      = 'Mutable data';
     $seq    = 1;
@@ -166,8 +167,9 @@ subtest 'Mutable data' => sub {
             $other_pub = $other_pk->export_key_raw('public');
         }
         else {
-            $other_pk  = Crypt::Perl::Ed25519::PrivateKey->new();
-            $other_pub = $other_pk->get_public_key;
+            $other_pk = Crypt::Perl::Ed25519::PrivateKey->new();
+            my $tmp_pub = $other_pk->get_public;
+            $other_pub = ref $tmp_pub ? $tmp_pub->encode : $tmp_pub;
         }
 
         # Scenario 1: Correct signature but for a DIFFERENT key targeting the original salt
