@@ -2,7 +2,7 @@
 
 All notable changes to Net::BitTorrent::DHT will probably be documented in this file.
 
-## [Unreleased]
+## [v2.0.6] - 2026-02-04
 
 ### Added
 
@@ -112,7 +112,8 @@ This is a total rewrite. I was breaking apart the Kademlia stuff into smaller pi
 
 - original version (broken from unstable Net::BitTorrent dist)
 
-[Unreleased]: https://github.com/sanko/Net-BitTorrent-DHT.pm/compare/v2.0.5...HEAD
+[Unreleased]: https://github.com/sanko/Net-BitTorrent-DHT.pm/compare/v2.0.6...HEAD
+[v2.0.6]: https://github.com/sanko/Net-BitTorrent-DHT.pm/compare/v2.0.5...v2.0.6
 [v2.0.5]: https://github.com/sanko/Net-BitTorrent-DHT.pm/compare/v2.0.4...v2.0.5
 [v2.0.4]: https://github.com/sanko/Net-BitTorrent-DHT.pm/compare/v2.0.3...v2.0.4
 [v2.0.3]: https://github.com/sanko/Net-BitTorrent-DHT.pm/compare/v2.0.2...v2.0.3
