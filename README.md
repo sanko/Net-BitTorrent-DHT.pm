@@ -121,6 +121,11 @@ my $dht = Net::BitTorrent::DHT->new(
     An array reference of `[[host, port], ...]` used for the initial bootstrap process. Defaults to a list of standard
     public DHT routers including `router.bittorrent.com` and `router.utorrent.com`.
 
+    \- \`node\_id\_rotation\_interval\`
+
+    The interval, in seconds, at which the node ID should be automatically rotated if BEP 42 is enabled. Defaults to
+    `7200` (2 hours).
+
 # METHODS
 
 ## `bootstrap( )`
@@ -133,7 +138,8 @@ $dht->bootstrap( );
 
 ## `tick( [$timeout] )`
 
-The heartbeat of the DHT. Call this in your loop to process I/O.
+The heartbeat of the DHT. Call this in your loop to process I/O. This method also handles automatic node ID rotation if
+the rotation interval has elapsed.
 
 ```perl
 my ( $nodes, $peers, $data ) = $dht->tick( 0.1 );
@@ -161,6 +167,15 @@ Sends a `get_peers` query.
 
 ```
 $dht->get_peers( $info_hash, '1.2.3.4', 6881 );
+```
+
+## `announce_infohash( $info_hash, $port )`
+
+Finds nodes closest to the given infohash and announces that the local node is downloading/seeding on the specified
+port. This is a high-level method that combines multiple `get_peers` and `announce_peer` calls.
+
+```
+$dht->announce_infohash( $info_hash, 6881 );
 ```
 
 ## `find_peers( $info_hash )`

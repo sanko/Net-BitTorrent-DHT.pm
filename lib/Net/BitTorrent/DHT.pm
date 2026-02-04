@@ -2,14 +2,14 @@ use v5.40;
 use feature 'class';
 no warnings 'experimental::class';
 #
-class Net::BitTorrent::DHT::Peer v2.0.5 {
+class Net::BitTorrent::DHT::Peer v2.0.6 {
     field $ip     : param : reader;
     field $port   : param : reader;
     field $family : param : reader;
     method to_string () {"$ip:$port"}
 };
 #
-class Net::BitTorrent::DHT v2.0.5 {
+class Net::BitTorrent::DHT v2.0.6 {
     use Algorithm::Kademlia;
     use Net::BitTorrent::DHT::Security;
     use Net::BitTorrent::Protocol::BEP03::Bencode qw[bencode bdecode];
@@ -37,9 +37,11 @@ class Net::BitTorrent::DHT v2.0.5 {
     field $data_storage     : reader = Algorithm::Kademlia::Storage->new( ttl => 7200 );
     field $socket           : param : reader //= IO::Socket::IP->new( LocalAddr => $address, LocalPort => $port, Proto => 'udp', Blocking => 0 );
     field $select //= IO::Select->new($socket);
-    field $token_secret     = pack( 'N', rand( 2**32 ) ) . pack( 'N', rand( 2**32 ) );
-    field $token_old_secret = $token_secret;
-    field $last_rotation    = time;
+    field $token_secret                      = pack( 'N', rand( 2**32 ) ) . pack( 'N', rand( 2**32 ) );
+    field $token_old_secret                  = $token_secret;
+    field $last_rotation                     = time;
+    field $node_id_rotation_interval : param = 7200;                                                      # 2 hours
+    field $last_node_id_rotation             = time;
     field $boot_nodes : param : reader : writer //= [ [ 'router.bittorrent.com', 6881 ], [ 'router.utorrent.com', 6881 ],
         [ 'dht.transmissionbt.com', 6881 ] ];
     field @_resolved_boot_nodes;
@@ -48,7 +50,7 @@ class Net::BitTorrent::DHT v2.0.5 {
     field $_ed25519_backend = ();
     field $running          = 0;
     field %_blacklist;
-    field %ip_votes;    # external_ip => count
+    field %ip_votes;                                                                                      # external_ip => count
     field $external_ip : reader = undef;
     field %on;
     field %_pending_queries;
@@ -82,6 +84,7 @@ class Net::BitTorrent::DHT v2.0.5 {
         }
         $self->on(
             external_ip_detected => sub ($ip) {
+                $external_ip = $ip;
                 return unless $bep42;
                 my $new_id = $security->generate_node_id($ip);
                 $self->set_node_id($new_id);
@@ -92,9 +95,7 @@ class Net::BitTorrent::DHT v2.0.5 {
                 require Crypt::PK::Ed25519;
                 $_ed25519_backend = method( $sig, $msg, $key ) {
                     my $ed = Crypt::PK::Ed25519->new();
-                    try {
-                        $ed->import_key_raw( $key, 'public' )->verify_message( $sig, $msg );
-                    }
+                    try { $ed->import_key_raw( $key, 'public' )->verify_message( $sig, $msg ); }
                     catch ($e) { return 0; }
                 }
             }
@@ -102,13 +103,8 @@ class Net::BitTorrent::DHT v2.0.5 {
                 try {
                     require Crypt::Perl::Ed25519::PublicKey;
                     $_ed25519_backend = method( $sig, $msg, $key ) {
-                        try {
-                            return Crypt::Perl::Ed25519::PublicKey->new($key)->verify( $msg, $sig )
-                        }
-                        catch ($e) {
-                            warn $e;
-                            return 0;
-                        }
+                        try { return Crypt::Perl::Ed25519::PublicKey->new($key)->verify( $msg, $sig ) }
+                        catch ($e2) { warn $e2; return 0; }
                     }
                 }
                 catch ($e2) { }
@@ -170,6 +166,17 @@ class Net::BitTorrent::DHT v2.0.5 {
         }
     }
 
+    method _rotate_node_id () {
+        if ( $external_ip && $bep42 ) {
+            my $new_id = $security->generate_node_id($external_ip);
+            if ( $new_id ne $node_id_bin ) {
+                warn "    [DHT] Rotating Node ID for $external_ip\n" if $debug;
+                $self->set_node_id($new_id);
+            }
+        }
+        $last_node_id_rotation = time;
+    }
+
     method _generate_token ( $ip, $secret //= undef ) {
         $secret //= $token_secret;
         return sha1( $ip . $secret );
@@ -182,7 +189,7 @@ class Net::BitTorrent::DHT v2.0.5 {
     }
 
     method bootstrap () {
-        for my $addr (@_resolved_boot_nodes) {
+        for my $addr (@$boot_nodes) {
             $self->_send( { t => 'pn', y => 'q', q => 'ping',      a => { id => $node_id_bin } },                         $addr );
             $self->_send( { t => 'fn', y => 'q', q => 'find_node', a => { id => $node_id_bin, target => $node_id_bin } }, $addr );
         }
@@ -280,6 +287,7 @@ class Net::BitTorrent::DHT v2.0.5 {
 
     method tick ( $timeout //= 0 ) {
         $self->_rotate_tokens();
+        $self->_rotate_node_id()        if time - $last_node_id_rotation >= $node_id_rotation_interval;
         return $self->handle_incoming() if $select->can_read($timeout);
         return ( [], [], undef );
     }
@@ -635,8 +643,7 @@ class Net::BitTorrent::DHT v2.0.5 {
                 my ( $ip_bin, $port ) = unpack( 'a4 n', $blob );
                 push @peers, Net::BitTorrent::DHT::Peer->new( ip => inet_ntoa($ip_bin), port => $port, family => 4 ) if $want_v4;
             }
-            else {
-                # Fallback for non-standard implementations that pack multiple peers into one string
+            else {    # Fallback for non-standard implementations that pack multiple peers into one string
                 while ( length($blob) >= 6 ) {
                     if ( length($blob) >= 18 && ( length($blob) % 18 == 0 ) ) {
                         my $chunk = substr( $blob, 0, 18, '' );
@@ -663,7 +670,7 @@ class Net::BitTorrent::DHT v2.0.5 {
         ];
     }
 
-    method _check_external_ip ($ip_bin) {
+    method _check_external_ip ( $ip_bin, $self_addr = undef ) {
         if ( length($ip_bin) == 6 ) {
             $ip_bin = substr( $ip_bin, 0, 4 );
         }

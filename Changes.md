@@ -1,6 +1,12 @@
 # Changelog
 
-All notable changes to Net::BitTorrent::DHT will be documented in this file.
+All notable changes to Net::BitTorrent::DHT will probably be documented in this file.
+
+## [Unreleased]
+
+### Added
+
+- Added `node_id_rotation_interval` parameter to constructor (default: 2 hours).
 
 ## [v2.0.5] - 2026-01-30
 

@@ -123,6 +123,11 @@ is useful for low-bandwidth clients or those behind restrictive NATs. Defaults t
 An array reference of C<[[host, port], ...]> used for the initial bootstrap process. Defaults to a list of standard
 public DHT routers including C<router.bittorrent.com> and C<router.utorrent.com>.
 
+- `node_id_rotation_interval`
+
+The interval, in seconds, at which the node ID should be automatically rotated if BEP 42 is enabled. Defaults to
+C<7200> (2 hours).
+
 =back
 
 =head1 METHODS
@@ -135,7 +140,8 @@ Queries bootstrap nodes to join the network.
 
 =head2 C<tick( [$timeout] )>
 
-The heartbeat of the DHT. Call this in your loop to process I/O.
+The heartbeat of the DHT. Call this in your loop to process I/O. This method also handles automatic node ID rotation if
+the rotation interval has elapsed.
 
     my ( $nodes, $peers, $data ) = $dht->tick( 0.1 );
 

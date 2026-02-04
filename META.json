@@ -76,15 +76,15 @@
    "provides" : {
       "Net::BitTorrent::DHT" : {
          "file" : "lib/Net/BitTorrent/DHT.pm",
-         "version" : "v2.0.5"
+         "version" : "v2.0.6"
       },
       "Net::BitTorrent::DHT::Peer" : {
          "file" : "lib/Net/BitTorrent/DHT.pm",
-         "version" : "v2.0.5"
+         "version" : "v2.0.6"
       },
       "Net::BitTorrent::DHT::Security" : {
          "file" : "lib/Net/BitTorrent/DHT/Security.pm",
-         "version" : "v2.0.5"
+         "version" : "v2.0.6"
       }
    },
    "release_status" : "stable",
@@ -102,7 +102,7 @@
          "web" : "https://github.com/sanko/Net-BitTorrent-DHT.pm"
       }
    },
-   "version" : "v2.0.5",
+   "version" : "v2.0.6",
    "x_help_wanted" : [
       "Tester",
       "Documenter"
